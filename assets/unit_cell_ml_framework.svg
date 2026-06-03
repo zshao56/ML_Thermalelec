@@ -1,0 +1,223 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="1120" viewBox="0 0 1700 1120">
+  <defs>
+    <style>
+      .bg { fill: #f8fafc; }
+      .panel { fill: #ffffff; stroke-width: 3; rx: 16; }
+      .orange { stroke: #e26a1a; }
+      .blue { stroke: #1d78b5; }
+      .green { stroke: #2c9b72; }
+      .gray { stroke: #64748b; }
+      .titleBox { fill: #ffe1c9; stroke: none; rx: 10; }
+      .titleBoxBlue { fill: #cce9f8; stroke: none; rx: 10; }
+      .titleBoxGreen { fill: #d6f3e3; stroke: none; rx: 10; }
+      .label { font-family: Arial, "Microsoft YaHei", sans-serif; font-size: 24px; fill: #111827; }
+      .small { font-family: Arial, "Microsoft YaHei", sans-serif; font-size: 19px; fill: #111827; }
+      .tiny { font-family: Arial, "Microsoft YaHei", sans-serif; font-size: 16px; fill: #334155; }
+      .mono { font-family: "SFMono-Regular", Consolas, monospace; font-size: 17px; fill: #0f172a; }
+      .panelTitle { font-family: Arial, "Microsoft YaHei", sans-serif; font-size: 27px; font-weight: 700; fill: #111827; }
+      .subTitle { font-family: Arial, "Microsoft YaHei", sans-serif; font-size: 22px; font-weight: 700; fill: #111827; }
+      .arrow { stroke: #111827; stroke-width: 2.4; fill: none; marker-end: url(#arrowhead); }
+      .dash { stroke-dasharray: 8 6; }
+      .thin { stroke-width: 1.5; }
+      .muted { fill: #64748b; }
+      .chip { fill: #eef2f7; stroke: #cbd5e1; stroke-width: 1.5; rx: 8; }
+      .tableLine { stroke: #cbd5e1; stroke-width: 1.5; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#111827"/>
+    </marker>
+    <linearGradient id="layerGrad1" x1="0" x2="1">
+      <stop offset="0" stop-color="#dbeafe"/>
+      <stop offset="1" stop-color="#bfdbfe"/>
+    </linearGradient>
+    <linearGradient id="layerGrad2" x1="0" x2="1">
+      <stop offset="0" stop-color="#dcfce7"/>
+      <stop offset="1" stop-color="#bbf7d0"/>
+    </linearGradient>
+    <linearGradient id="layerGrad3" x1="0" x2="1">
+      <stop offset="0" stop-color="#ffedd5"/>
+      <stop offset="1" stop-color="#fed7aa"/>
+    </linearGradient>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1700" height="1120"/>
+
+  <text x="60" y="55" class="panelTitle">圆环-支柱热电 coating 元胞数据库与 ML 逆向设计框架</text>
+  <text x="60" y="87" class="small muted">Unit-cell level: one scaffold geometry + one p/n thermoelectric coating + one operating condition</text>
+
+  <!-- Geometric descriptor panel -->
+  <rect x="40" y="120" width="1035" height="730" class="panel orange"/>
+  <rect x="375" y="98" width="350" height="48" class="titleBox"/>
+  <text x="445" y="130" class="panelTitle">几何描述符 G<tspan baseline-shift="sub" font-size="18">i</tspan></text>
+
+  <!-- a ring primitive -->
+  <text x="70" y="175" class="subTitle">a  圆环边界基元</text>
+  <g transform="translate(90,210)">
+    <ellipse cx="120" cy="65" rx="112" ry="42" fill="#dbeafe" stroke="#334155" stroke-width="2"/>
+    <ellipse cx="120" cy="65" rx="54" ry="20" fill="#ffffff" stroke="#334155" stroke-width="2"/>
+    <rect x="8" y="65" width="224" height="24" fill="#bfdbfe" stroke="#334155" stroke-width="2"/>
+    <ellipse cx="120" cy="89" rx="112" ry="42" fill="none" stroke="#334155" stroke-width="2"/>
+    <line x1="120" y1="65" x2="232" y2="65" stroke="#ef4444" stroke-width="3"/>
+    <line x1="120" y1="65" x2="174" y2="65" stroke="#2563eb" stroke-width="3"/>
+    <text x="244" y="68" class="tiny">R<tspan baseline-shift="sub">out</tspan>=2 mm</text>
+    <text x="176" y="50" class="tiny">R<tspan baseline-shift="sub">in</tspan>/R<tspan baseline-shift="sub">out</tspan></text>
+    <text x="8" y="138" class="mono">t_ring = 0.1 / 0.2 / 0.3 mm</text>
+    <text x="8" y="165" class="mono">ratio_hole = 0 / .25 / .5 / .75</text>
+  </g>
+
+  <!-- b stacking -->
+  <text x="455" y="175" class="subTitle">b  z 方向堆叠</text>
+  <g transform="translate(455,205)">
+    <polygon points="70,40 250,40 310,75 130,75" fill="url(#layerGrad1)" stroke="#334155" stroke-width="2"/>
+    <polygon points="70,125 250,125 310,160 130,160" fill="url(#layerGrad2)" stroke="#334155" stroke-width="2"/>
+    <polygon points="70,210 250,210 310,245 130,245" fill="url(#layerGrad3)" stroke="#334155" stroke-width="2"/>
+    <line x1="130" y1="75" x2="130" y2="125" stroke="#64748b" stroke-width="6"/>
+    <line x1="250" y1="40" x2="250" y2="125" stroke="#64748b" stroke-width="6"/>
+    <line x1="190" y1="62" x2="190" y2="140" stroke="#64748b" stroke-width="6"/>
+    <line x1="130" y1="160" x2="130" y2="210" stroke="#64748b" stroke-width="6"/>
+    <line x1="250" y1="125" x2="250" y2="210" stroke="#64748b" stroke-width="6"/>
+    <line x1="190" y1="147" x2="190" y2="225" stroke="#64748b" stroke-width="6"/>
+    <line x1="350" y1="40" x2="350" y2="245" stroke="#111827" stroke-width="2"/>
+    <line x1="340" y1="40" x2="360" y2="40" stroke="#111827" stroke-width="2"/>
+    <line x1="340" y1="245" x2="360" y2="245" stroke="#111827" stroke-width="2"/>
+    <text x="370" y="150" class="small">H_total = 10 mm</text>
+    <text x="5" y="295" class="mono">H_uc = 1 / 2.5 / 5 / 10 mm</text>
+    <text x="5" y="323" class="mono">N_layer = H_total / H_uc</text>
+  </g>
+
+  <!-- c column primitives -->
+  <text x="70" y="445" class="subTitle">c  支柱截面基元</text>
+  <g transform="translate(70,475)">
+    <g transform="translate(0,0)">
+      <rect x="0" y="0" width="205" height="130" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5" rx="10"/>
+      <circle cx="48" cy="52" r="28" fill="#93c5fd" stroke="#334155" stroke-width="2"/>
+      <rect x="110" y="24" width="56" height="56" fill="#93c5fd" stroke="#334155" stroke-width="2"/>
+      <text x="22" y="112" class="small">圆柱</text>
+      <text x="110" y="112" class="small">方柱</text>
+    </g>
+    <g transform="translate(0,150)">
+      <rect x="0" y="0" width="205" height="130" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5" rx="10"/>
+      <polygon points="48,18 76,38 65,73 31,73 20,38" fill="#93c5fd" stroke="#334155" stroke-width="2"/>
+      <polygon points="137,18 165,34 165,66 137,82 109,66 109,34" fill="#93c5fd" stroke="#334155" stroke-width="2"/>
+      <text x="16" y="112" class="small">五角柱</text>
+      <text x="105" y="112" class="small">六角柱</text>
+    </g>
+    <text x="250" y="45" class="mono">column_type = 4</text>
+    <text x="250" y="75" class="mono">size1 = 0.2/0.3/0.4/0.5 mm</text>
+    <text x="250" y="105" class="mono">num = 5/10/15/20</text>
+    <text x="250" y="155" class="tiny muted">第一轮仅保留规则直柱，复杂曲线支柱进入第二轮。</text>
+  </g>
+
+  <!-- d arrangement -->
+  <text x="635" y="445" class="subTitle">d  支柱位置排布</text>
+  <g transform="translate(650,480)">
+    <circle cx="130" cy="120" r="110" fill="#ffffff" stroke="#334155" stroke-width="2"/>
+    <circle cx="130" cy="120" r="45" fill="#f8fafc" stroke="#334155" stroke-width="2"/>
+    <circle cx="130" cy="120" r="82" fill="none" stroke="#94a3b8" stroke-width="2" stroke-dasharray="7 6"/>
+    <g fill="#fb923c" stroke="#7c2d12" stroke-width="1.5">
+      <circle cx="212" cy="120" r="9"/>
+      <circle cx="188" cy="178" r="9"/>
+      <circle cx="130" cy="202" r="9"/>
+      <circle cx="72" cy="178" r="9"/>
+      <circle cx="48" cy="120" r="9"/>
+      <circle cx="72" cy="62" r="9"/>
+      <circle cx="130" cy="38" r="9"/>
+      <circle cx="188" cy="62" r="9"/>
+    </g>
+    <text x="275" y="72" class="mono">theta_i = 2pi*i/n + offset</text>
+    <text x="275" y="103" class="mono">r_place = R_in + lambda(R_out-R_in)</text>
+    <text x="275" y="134" class="mono">lambda = 0.65 or 0.75</text>
+    <text x="275" y="184" class="tiny muted">层间连接错位 k = 0, n/5, 2n/5；改变路径长度与热/电阻。</text>
+  </g>
+
+  <!-- Material descriptor panel -->
+  <rect x="1125" y="120" width="520" height="355" class="panel blue"/>
+  <rect x="1230" y="98" width="300" height="48" class="titleBoxBlue"/>
+  <text x="1282" y="130" class="panelTitle">材料描述符 M<tspan baseline-shift="sub" font-size="18">i</tspan></text>
+  <text x="1160" y="178" class="subTitle">热电 coating / PVD</text>
+  <g transform="translate(1160,205)">
+    <rect x="0" y="0" width="455" height="195" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+    <line x1="0" y1="42" x2="455" y2="42" class="tableLine"/>
+    <line x1="118" y1="0" x2="118" y2="195" class="tableLine"/>
+    <line x1="245" y1="0" x2="245" y2="195" class="tableLine"/>
+    <text x="20" y="29" class="small">carrier</text>
+    <text x="145" y="29" class="small">Bi2Te3 (n)</text>
+    <text x="282" y="29" class="small">Sb2Te3 (p)</text>
+    <text x="18" y="72" class="mono">S_uc</text>
+    <text x="145" y="72" class="mono">-155 uV/K</text>
+    <text x="282" y="72" class="mono">+100 uV/K</text>
+    <text x="18" y="112" class="mono">sigma</text>
+    <text x="145" y="112" class="mono">400 S/cm</text>
+    <text x="282" y="112" class="mono">1000 S/cm</text>
+    <text x="18" y="152" class="mono">kappa</text>
+    <text x="145" y="152" class="mono">0.9-1.1</text>
+    <text x="282" y="152" class="mono">0.9-1.1</text>
+    <text x="18" y="187" class="mono">t</text>
+    <text x="145" y="187" class="mono">0.5/1/1.5/2 um</text>
+  </g>
+  <text x="1160" y="436" class="mono">R_sheet = 1/(sigma * t)</text>
+  <text x="1160" y="462" class="tiny muted">coating 覆盖率、C_net 与形状因子用于修正表面网络电阻。</text>
+
+  <!-- Condition descriptor panel -->
+  <rect x="1125" y="510" width="520" height="215" class="panel green"/>
+  <rect x="1225" y="488" width="315" height="48" class="titleBoxGreen"/>
+  <text x="1265" y="520" class="panelTitle">工况描述符 C<tspan baseline-shift="sub" font-size="18">i</tspan></text>
+  <g transform="translate(1160,555)">
+    <rect x="0" y="0" width="455" height="125" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+    <text x="18" y="33" class="mono">T_hot_surface or q_hot</text>
+    <text x="18" y="66" class="mono">T_cold_env</text>
+    <text x="18" y="99" class="mono">h_cold</text>
+    <text x="275" y="33" class="mono">298.15-523.15 K</text>
+    <text x="275" y="66" class="mono">288.15-353.15 K</text>
+    <text x="275" y="99" class="mono">5-150 W/m2K</text>
+  </g>
+  <text x="1160" y="704" class="tiny muted">下层为热端，上层为对流冷端；边界条件决定 DeltaT_uc。</text>
+
+  <!-- Combined descriptor and labels -->
+  <rect x="1125" y="765" width="520" height="220" class="panel gray"/>
+  <text x="1160" y="815" class="subTitle">训练样本与标签</text>
+  <g transform="translate(1160,840)">
+    <rect x="0" y="0" width="210" height="52" class="chip"/>
+    <text x="44" y="33" class="small">G_i + M_i + C_i</text>
+    <path d="M225,26 L295,26" class="arrow"/>
+    <rect x="310" y="0" width="150" height="52" class="chip"/>
+    <text x="343" y="33" class="small">Y_i labels</text>
+    <text x="0" y="88" class="mono">X variables:</text>
+    <text x="0" y="116" class="tiny">ring, height, column type, size, num, offset, path, coating, material, condition</text>
+    <text x="0" y="150" class="mono">Y labels:</text>
+    <text x="0" y="178" class="tiny">kappa_uc, DeltaT_uc, V_oc_uc, R_uc, P_max_uc, validity</text>
+  </g>
+
+  <!-- Design space count -->
+  <g transform="translate(55,875)">
+    <rect x="0" y="0" width="645" height="82" fill="#fff7ed" stroke="#fdba74" stroke-width="2" rx="12"/>
+    <text x="24" y="34" class="subTitle">第一轮设计空间</text>
+    <text x="24" y="64" class="mono">3(t_ring) * 4(ratio_hole) * 4(H_uc) * 4(column) * 4(size) * 4(num) * 3(offset) * 4(t) * 2(p/n) * 6(path) = 442,368 samples</text>
+  </g>
+
+  <!-- Equations -->
+  <g transform="translate(735,875)">
+    <rect x="0" y="0" width="555" height="82" fill="#eff6ff" stroke="#93c5fd" stroke-width="2" rx="12"/>
+    <text x="18" y="31" class="mono">DeltaT_uc = (T_hot - T_cold) * L_uc / (L_uc + kappa_uc / h_cold)</text>
+    <text x="18" y="58" class="mono">V_oc = S_uc * DeltaT_uc,   P_max = V_oc^2 / (4 R_uc)</text>
+  </g>
+
+  <!-- Workflow bottom -->
+  <g transform="translate(45,1010)">
+    <text x="0" y="-18" class="subTitle">ML-based unit-cell inverse design workflow</text>
+    <rect x="0" y="0" width="240" height="52" fill="#ffffff" stroke="#64748b" stroke-width="3" rx="6"/>
+    <text x="38" y="34" class="small">Database establishment</text>
+    <path d="M250,26 L360,26" class="arrow"/>
+    <rect x="370" y="0" width="220" height="52" fill="#ffffff" stroke="#1d78b5" stroke-width="3" rx="6"/>
+    <text x="415" y="34" class="small">Forward prediction</text>
+    <path d="M600,26 L710,26" class="arrow"/>
+    <rect x="720" y="0" width="270" height="52" fill="#ffffff" stroke="#e26a1a" stroke-width="3" rx="6"/>
+    <text x="760" y="34" class="small">On-demand inverse design</text>
+    <path d="M1000,26 L1110,26" class="arrow"/>
+    <rect x="1120" y="0" width="285" height="52" fill="#ffffff" stroke="#1d78b5" stroke-width="3" rx="6"/>
+    <text x="1175" y="34" class="small">FEM / experiment validation</text>
+    <path d="M1415,26 L1510,26" class="arrow"/>
+    <rect x="1520" y="0" width="135" height="52" fill="#ffffff" stroke="#2c9b72" stroke-width="3" rx="6"/>
+    <text x="1555" y="34" class="small">Update DB</text>
+  </g>
+</svg>

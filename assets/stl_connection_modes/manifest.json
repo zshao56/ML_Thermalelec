@@ -1,0 +1,48 @@
+{
+  "units": "mm",
+  "description": "Six path-type STL previews for one ring-column thermoelectric-coating unit cell.",
+  "shared_ring_note": "The upper ring is shown for visual clarity and is treated as the shared ring of the neighbouring layer.",
+  "defaults": {
+    "R_out_mm": 2.0,
+    "R_in_mm": 1.0,
+    "t_ring_mm": 0.2,
+    "H_uc_mm": 5.0,
+    "h_col_mm": 4.8,
+    "num_columns": 5,
+    "connection_offset_units": 1,
+    "column_diameter_mm": 0.3,
+    "r_place_mm": 1.75
+  },
+  "files": [
+    {
+      "path_type": "straight",
+      "file": "connection_01_straight.stl",
+      "triangles": 16448
+    },
+    {
+      "path_type": "single_kink",
+      "file": "connection_02_single_kink.stl",
+      "triangles": 16448
+    },
+    {
+      "path_type": "arc_curve",
+      "file": "connection_03_arc_curve.stl",
+      "triangles": 21248
+    },
+    {
+      "path_type": "sine_wave",
+      "file": "connection_04_sine_wave.stl",
+      "triangles": 26048
+    },
+    {
+      "path_type": "helix_winding",
+      "file": "connection_05_helix_winding.stl",
+      "triangles": 30848
+    },
+    {
+      "path_type": "bezier_curve",
+      "file": "connection_06_bezier_curve.stl",
+      "triangles": 26048
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+
+# macOS and local editor state
+.DS_Store
+.obsidian/
+
+# Python and test caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Generated databases. Rebuild with scripts/build_unit_cell_database.py.
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/*.sqlite-*
+
+# Local exports and temporary files
+tmp/
+*.log
