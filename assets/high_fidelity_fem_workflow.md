@@ -12,6 +12,12 @@ These files can be imported into COMSOL, ANSYS, Abaqus, or another FEM tool.
 
 ## 1. Create FEM sampling set
 
+First check whether the server has a usable FEM solver stack:
+
+```bash
+python3 scripts/check_fem_environment.py
+```
+
 Use the intrinsic dataset to select a 200-case high-fidelity sample:
 
 ```bash

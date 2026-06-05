@@ -109,6 +109,12 @@ python3 scripts/audit_intrinsic_dataset.py \
 
 ## 高质量 FEM 采样
 
+先检查服务器是否具备自动 FEM 求解环境：
+
+```bash
+python3 scripts/check_fem_environment.py
+```
+
 从本征数据集中准备较小的高质量仿真采样集：
 
 ```bash

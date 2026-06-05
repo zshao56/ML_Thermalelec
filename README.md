@@ -112,6 +112,12 @@ python3 scripts/audit_intrinsic_dataset.py \
 
 ## High-Fidelity FEM Sampling
 
+Check whether the server has an automated FEM solver stack:
+
+```bash
+python3 scripts/check_fem_environment.py
+```
+
 Prepare a smaller high-fidelity simulation set from the intrinsic dataset:
 
 ```bash
