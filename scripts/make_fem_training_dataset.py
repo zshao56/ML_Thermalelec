@@ -18,6 +18,8 @@ LABEL_FIELDS = [
     "p_area_coeff_fem_w_m2_k2",
 ]
 
+SIGNED_FINITE_LABEL_FIELDS = {"alpha_eff_fem_v_k"}
+
 FEATURE_FIELDS = [
     "case_id",
     "material_name",
@@ -49,13 +51,25 @@ def parse_finite_positive(row: dict[str, str], field: str) -> float | None:
     return parsed
 
 
+def parse_finite(row: dict[str, str], field: str) -> float | None:
+    value = row.get(field, "").strip()
+    if not value:
+        return None
+    parsed = float(value)
+    return parsed if math.isfinite(parsed) else None
+
+
 def is_usable(row: dict[str, str]) -> tuple[bool, str]:
     if row.get("fem_status", "") != "done":
         return False, row.get("fem_invalid_reason", "") or "fem_status_not_done"
     if row.get("fem_valid", "1") in {"0", "false", "False"}:
         return False, row.get("fem_invalid_reason", "") or "fem_valid_is_false"
     for field in LABEL_FIELDS:
-        if parse_finite_positive(row, field) is None:
+        if field in SIGNED_FINITE_LABEL_FIELDS:
+            parsed = parse_finite(row, field)
+        else:
+            parsed = parse_finite_positive(row, field)
+        if parsed is None:
             return False, f"bad_label:{field}"
     return True, ""
 
