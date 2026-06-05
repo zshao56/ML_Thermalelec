@@ -102,6 +102,14 @@ Default output:
 results/intrinsic_network_dataset.csv
 ```
 
+Audit the dataset before training:
+
+```bash
+python3 scripts/audit_intrinsic_dataset.py \
+  --input results/intrinsic_network_dataset.csv \
+  --out-dir results/intrinsic_audit
+```
+
 ## Main Analytical Estimates
 
 The database generator computes first-pass descriptors and estimates including:

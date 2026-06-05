@@ -99,6 +99,14 @@ python3 scripts/run_intrinsic_batches.py \
 results/intrinsic_network_dataset.csv
 ```
 
+训练前先审查数据集：
+
+```bash
+python3 scripts/audit_intrinsic_dataset.py \
+  --input results/intrinsic_network_dataset.csv \
+  --out-dir results/intrinsic_audit
+```
+
 ## 主要解析估算结果
 
 数据库生成脚本会计算第一版筛选用的描述符和估算结果，包括：
