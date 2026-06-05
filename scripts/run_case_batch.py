@@ -22,6 +22,7 @@ class Scenario:
     t_cold_env_k: float
     q_hot_w_m2: float | None
     h_cold_w_m2k: float
+    t_hot_max_k: float | None = None
 
 
 SCENARIOS = [
@@ -30,7 +31,7 @@ SCENARIOS = [
     Scenario("pipe_static", "fixed_hot_surface_cold_convection", 393.15, 293.15, None, 10.0),
     Scenario("pipe_active", "fixed_hot_surface_cold_convection", 433.15, 313.15, None, 100.0),
     Scenario("industrial", "fixed_hot_surface_cold_convection", 493.15, 323.15, None, 15.0),
-    Scenario("laptop_cpu_gpu", "fixed_q_cold_convection", None, 313.15, 10000.0, 100.0),
+    Scenario("laptop_cpu_gpu", "fixed_q_cold_convection", None, 313.15, 10000.0, 100.0, 358.15),
 ]
 
 SEEBECK_BY_MATERIAL = {
@@ -120,6 +121,9 @@ def evaluate(row: dict[str, str], scenario: Scenario) -> dict[str, object]:
     if delta_t_device < 0:
         result_valid = False
         invalid_reason = "negative_delta_t"
+    if scenario.t_hot_max_k is not None and t_hot_device > scenario.t_hot_max_k:
+        result_valid = False
+        invalid_reason = "hot_side_temperature_exceeds_limit"
 
     q_hot_input_w = q_hot_input_w_m2 * a_device_m2
     q_leak_open_w_m2 = kappa * delta_t_device / l_device_m
