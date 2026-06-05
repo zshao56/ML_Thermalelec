@@ -110,6 +110,29 @@ python3 scripts/audit_intrinsic_dataset.py \
   --out-dir results/intrinsic_audit
 ```
 
+## High-Fidelity FEM Sampling
+
+Prepare a smaller high-fidelity simulation set from the intrinsic dataset:
+
+```bash
+python3 scripts/make_fem_sampling_set.py \
+  --intrinsic-dataset results/intrinsic_network_dataset.csv \
+  --db-path data/unit_cell_design_space.sqlite \
+  --output results/fem_sampling/fem_sampling_200.csv \
+  --target-count 200
+```
+
+Create generic FEM job folders:
+
+```bash
+python3 scripts/prepare_fem_jobs.py \
+  --input results/fem_sampling/fem_sampling_200.csv \
+  --out-dir results/fem_sampling/jobs_test \
+  --limit 5
+```
+
+See [assets/high_fidelity_fem_workflow.md](assets/high_fidelity_fem_workflow.md).
+
 ## Main Analytical Estimates
 
 The database generator computes first-pass descriptors and estimates including:

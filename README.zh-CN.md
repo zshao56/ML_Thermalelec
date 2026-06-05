@@ -107,6 +107,29 @@ python3 scripts/audit_intrinsic_dataset.py \
   --out-dir results/intrinsic_audit
 ```
 
+## 高质量 FEM 采样
+
+从本征数据集中准备较小的高质量仿真采样集：
+
+```bash
+python3 scripts/make_fem_sampling_set.py \
+  --intrinsic-dataset results/intrinsic_network_dataset.csv \
+  --db-path data/unit_cell_design_space.sqlite \
+  --output results/fem_sampling/fem_sampling_200.csv \
+  --target-count 200
+```
+
+生成通用 FEM job 文件夹：
+
+```bash
+python3 scripts/prepare_fem_jobs.py \
+  --input results/fem_sampling/fem_sampling_200.csv \
+  --out-dir results/fem_sampling/jobs_test \
+  --limit 5
+```
+
+详细流程见 [assets/high_fidelity_fem_workflow.md](assets/high_fidelity_fem_workflow.md)。
+
 ## 主要解析估算结果
 
 数据库生成脚本会计算第一版筛选用的描述符和估算结果，包括：

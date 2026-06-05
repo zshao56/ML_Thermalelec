@@ -72,7 +72,11 @@ def unit(a: Vec3, fallback: Vec3 = (1.0, 0.0, 0.0)) -> Vec3:
 
 def triangle_normal(triangle: Triangle) -> Vec3:
     a, b, c = triangle
-    return unit(cross(sub(b, a), sub(c, a)), (0.0, 0.0, 0.0))
+    normal = cross(sub(b, a), sub(c, a))
+    length = norm(normal)
+    if length < 1e-12:
+        return (0.0, 0.0, 0.0)
+    return mul(normal, 1.0 / length)
 
 
 def write_ascii_stl(path: Path, name: str, triangles: list[Triangle]) -> int:
@@ -286,7 +290,7 @@ def position_for_index(index: int, placement: dict[str, object], z: float, n_col
     raise ValueError(f"Unknown placement mode: {mode}")
 
 
-def make_case_mesh(row: dict[str, str]) -> tuple[list[Triangle], dict[str, object]]:
+def make_case_mesh(row: dict[str, str], ring_segments: int = RING_SEGMENTS) -> tuple[list[Triangle], dict[str, object]]:
     case_id = row["case_id"]
     r_out = float(row["r_out_m"]) * 1000.0
     r_in = float(row["r_in_m"]) * 1000.0
@@ -303,7 +307,7 @@ def make_case_mesh(row: dict[str, str]) -> tuple[list[Triangle], dict[str, objec
     triangles: list[Triangle] = []
     for layer_index in range(n_layer + 1):
         z0 = layer_index * h_uc
-        triangles.extend(ring_mesh(z0, z0 + t_ring, r_out, r_in, RING_SEGMENTS))
+        triangles.extend(ring_mesh(z0, z0 + t_ring, r_out, r_in, ring_segments))
 
     for layer_index in range(n_layer):
         z_bottom = layer_index * h_uc + t_ring
@@ -332,6 +336,7 @@ def make_case_mesh(row: dict[str, str]) -> tuple[list[Triangle], dict[str, objec
         "path_type": path_type,
         "connection_offset_units": offset_units,
         "placement_mode": placement["mode"],
+        "ring_segments": ring_segments,
         "triangles_before_degenerate_filter": len(triangles),
     }
     return triangles, metadata

@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+"""Select a high-fidelity FEM sampling set from intrinsic network labels."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import sqlite3
+from collections import defaultdict
+from pathlib import Path
+
+
+DIVERSITY_FIELDS = [
+    "material_name",
+    "t_ring_m",
+    "ratio_hole",
+    "h_uc_m",
+    "column_type",
+    "size1_m",
+    "num_columns",
+    "path_type",
+    "connection_offset_units",
+    "t_coating_m",
+]
+
+INTRINSIC_LABEL_FIELDS = [
+    "kappa_eff_network_w_mk",
+    "r_e_network_ohm",
+    "r_coating_network_ohm",
+    "alpha_device_v_k",
+    "p_max_coeff_w_k2",
+    "p_area_coeff_w_m2_k2",
+    "baseline_kappa_uc_est_w_mk",
+    "baseline_r_uc_est_ohm",
+]
+
+
+def parse_float(row: dict[str, str], key: str) -> float:
+    return float(row[key])
+
+
+def read_intrinsic_rows(path: Path) -> list[dict[str, str]]:
+    with path.open("r", newline="", encoding="utf-8") as f:
+        rows = [row for row in csv.DictReader(f) if row.get("result_valid") == "1"]
+    if not rows:
+        raise SystemExit(f"No valid intrinsic rows found in {path}")
+    return rows
+
+
+def add_selected(
+    selected: dict[str, dict[str, str]],
+    row: dict[str, str],
+    priority: str,
+    reason: str,
+) -> bool:
+    case_id = row["case_id"]
+    if case_id in selected:
+        existing = selected[case_id]
+        reasons = set(existing["selection_reason"].split(";"))
+        if reason not in reasons:
+            existing["selection_reason"] += f";{reason}"
+        return False
+    selected[case_id] = {
+        "case_id": case_id,
+        "selection_priority": priority,
+        "selection_reason": reason,
+    }
+    for field in INTRINSIC_LABEL_FIELDS:
+        selected[case_id][field] = row.get(field, "")
+    return True
+
+
+def select_top_performance(rows: list[dict[str, str]], selected: dict[str, dict[str, str]], count: int) -> None:
+    ranked = sorted(rows, key=lambda row: parse_float(row, "p_area_coeff_w_m2_k2"), reverse=True)
+    added = 0
+    for row in ranked:
+        if add_selected(selected, row, "A", "top_p_area_coeff"):
+            added += 1
+        if added >= count:
+            return
+
+
+def select_diverse_representatives(rows: list[dict[str, str]], selected: dict[str, dict[str, str]], count: int) -> None:
+    groups: dict[tuple[str, ...], list[dict[str, str]]] = defaultdict(list)
+    for row in rows:
+        key = tuple(row[field] for field in DIVERSITY_FIELDS)
+        groups[key].append(row)
+
+    representatives: list[dict[str, str]] = []
+    for group_rows in groups.values():
+        representatives.append(
+            max(group_rows, key=lambda row: parse_float(row, "p_area_coeff_w_m2_k2"))
+        )
+    representatives.sort(
+        key=lambda row: (
+            row["material_name"],
+            float(row["ratio_hole"]),
+            float(row["h_uc_m"]),
+            row["column_type"],
+            float(row["size1_m"]),
+            int(float(row["num_columns"])),
+            row["path_type"],
+            int(float(row["connection_offset_units"])),
+            float(row["t_coating_m"]),
+        )
+    )
+
+    added = 0
+    for row in representatives:
+        if add_selected(selected, row, "B", "diversity_representative"):
+            added += 1
+        if added >= count:
+            return
+
+
+def select_boundary_cases(rows: list[dict[str, str]], selected: dict[str, dict[str, str]], count: int) -> None:
+    ranked_lists = [
+        ("min_kappa", sorted(rows, key=lambda row: parse_float(row, "kappa_eff_network_w_mk"))),
+        ("max_kappa", sorted(rows, key=lambda row: parse_float(row, "kappa_eff_network_w_mk"), reverse=True)),
+        ("min_r_e", sorted(rows, key=lambda row: parse_float(row, "r_e_network_ohm"))),
+        ("max_r_e", sorted(rows, key=lambda row: parse_float(row, "r_e_network_ohm"), reverse=True)),
+        ("min_p_area_coeff", sorted(rows, key=lambda row: parse_float(row, "p_area_coeff_w_m2_k2"))),
+        ("max_p_area_coeff", sorted(rows, key=lambda row: parse_float(row, "p_area_coeff_w_m2_k2"), reverse=True)),
+    ]
+    indices = {name: 0 for name, _rows in ranked_lists}
+    added = 0
+    while added < count:
+        progressed = False
+        for name, ranked in ranked_lists:
+            while indices[name] < len(ranked):
+                row = ranked[indices[name]]
+                indices[name] += 1
+                if add_selected(selected, row, "C", name):
+                    added += 1
+                    progressed = True
+                    break
+            if added >= count:
+                return
+        if not progressed:
+            return
+
+
+def fill_to_target(rows: list[dict[str, str]], selected: dict[str, dict[str, str]], target_count: int) -> None:
+    ranked = sorted(rows, key=lambda row: parse_float(row, "p_area_coeff_w_m2_k2"), reverse=True)
+    for row in ranked:
+        if len(selected) >= target_count:
+            return
+        add_selected(selected, row, "D", "target_count_fill")
+
+
+def fetch_design_rows(db_path: Path, case_ids: list[str]) -> dict[str, dict[str, str]]:
+    placeholders = ",".join(["?"] * len(case_ids))
+    query = f"SELECT * FROM unit_cell_designs WHERE case_id IN ({placeholders}) ORDER BY case_id"
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(query, case_ids).fetchall()
+    return {str(row["case_id"]): {key: row[key] for key in row.keys()} for row in rows}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Create a high-fidelity FEM sampling set.")
+    parser.add_argument("--intrinsic-dataset", default="results/intrinsic_network_dataset.csv")
+    parser.add_argument("--db-path", default="data/unit_cell_design_space.sqlite")
+    parser.add_argument("--output", default="results/fem_sampling/fem_sampling_200.csv")
+    parser.add_argument("--target-count", type=int, default=200)
+    parser.add_argument("--top-count", type=int, default=50)
+    parser.add_argument("--diversity-count", type=int, default=100)
+    parser.add_argument("--boundary-count", type=int, default=50)
+    args = parser.parse_args()
+
+    intrinsic_path = Path(args.intrinsic_dataset)
+    db_path = Path(args.db_path)
+    output_path = Path(args.output)
+    if not intrinsic_path.exists():
+        raise SystemExit(f"Intrinsic dataset does not exist: {intrinsic_path}")
+    if not db_path.exists():
+        raise SystemExit(f"Database does not exist: {db_path}")
+
+    rows = read_intrinsic_rows(intrinsic_path)
+    selected: dict[str, dict[str, str]] = {}
+    select_top_performance(rows, selected, args.top_count)
+    select_diverse_representatives(rows, selected, args.diversity_count)
+    select_boundary_cases(rows, selected, args.boundary_count)
+    fill_to_target(rows, selected, args.target_count)
+
+    selected_items = list(selected.values())[: args.target_count]
+    case_ids = [row["case_id"] for row in selected_items]
+    design_rows = fetch_design_rows(db_path, case_ids)
+    missing = sorted(set(case_ids) - set(design_rows))
+    if missing:
+        raise SystemExit(f"Missing design rows for case_ids: {missing[:10]}")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    sample_rows = []
+    for index, selected_row in enumerate(selected_items, start=1):
+        case_id = selected_row["case_id"]
+        combined = {
+            "fem_sample_id": f"FEM{index:04d}",
+            "selection_priority": selected_row["selection_priority"],
+            "selection_reason": selected_row["selection_reason"],
+        }
+        for field in INTRINSIC_LABEL_FIELDS:
+            combined[field] = selected_row.get(field, "")
+        combined.update(design_rows[case_id])
+        sample_rows.append(combined)
+
+    fieldnames = list(sample_rows[0].keys())
+    with output_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(sample_rows)
+
+    print(f"Intrinsic rows read: {len(rows)}")
+    print(f"FEM sampling rows: {len(sample_rows)}")
+    print(f"Output: {output_path}")
+
+
+if __name__ == "__main__":
+    main()
