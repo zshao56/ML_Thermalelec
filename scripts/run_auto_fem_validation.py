@@ -651,12 +651,29 @@ def solve_job_dir(args: tuple[str, bool, float, str]) -> tuple[str, dict[str, ob
     return job_dir.name, result
 
 
+def read_sample_ids(path: Path) -> set[str]:
+    with path.open("r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        if "fem_sample_id" not in (reader.fieldnames or []):
+            raise SystemExit(f"Missing fem_sample_id column in {path}")
+        return {row["fem_sample_id"] for row in reader if row.get("fem_sample_id")}
+
+
+def sample_id_from_job_dir(job_dir: Path) -> str:
+    return job_dir.name.split("_", 1)[0]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run automated FEM validation for prepared jobs.")
     parser.add_argument("--jobs-dir", default="results/fem_sampling/jobs")
     parser.add_argument("--template", default="results/fem_sampling/fem_results_template_200.csv")
     parser.add_argument("--output", default="results/fem_sampling/fem_results_200.csv")
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument(
+        "--sample-ids-csv",
+        default=None,
+        help="Optional CSV containing fem_sample_id values; only matching jobs are solved.",
+    )
     parser.add_argument(
         "--solver",
         choices=["auto", "tetra", "voxel"],
@@ -684,6 +701,12 @@ def main() -> None:
         raise SystemExit(f"Template CSV does not exist: {template_path}")
 
     job_dirs = sorted(p for p in jobs_dir.iterdir() if p.is_dir())
+    if args.sample_ids_csv:
+        sample_ids_path = Path(args.sample_ids_csv)
+        if not sample_ids_path.exists():
+            raise SystemExit(f"Sample-id CSV does not exist: {sample_ids_path}")
+        requested_sample_ids = read_sample_ids(sample_ids_path)
+        job_dirs = [job_dir for job_dir in job_dirs if sample_id_from_job_dir(job_dir) in requested_sample_ids]
     if args.limit is not None:
         job_dirs = job_dirs[: args.limit]
     if not job_dirs:
@@ -693,6 +716,9 @@ def main() -> None:
     print(f"Jobs: {len(job_dirs)}")
     print(f"Solver: {args.solver}")
     print(f"Workers: {args.workers}")
+    print(f"Voxel size: {args.voxel_size_m}")
+    if args.sample_ids_csv:
+        print(f"Sample filter: {args.sample_ids_csv}")
     task_args = [(str(job_dir), args.force_mesh, args.voxel_size_m, args.solver) for job_dir in job_dirs]
     if args.workers == 1:
         for task in task_args:
