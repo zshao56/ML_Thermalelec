@@ -19,6 +19,8 @@ import argparse
 import csv
 import json
 import math
+import shutil
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -92,7 +94,8 @@ def read_json(path: Path) -> dict[str, object]:
 
 def mesh_case(stl_path: Path, msh_path: Path, mesh_size_mm: float) -> None:
     if gmsh is None:
-        raise RuntimeError(f"gmsh Python module is unavailable: {GMsh_IMPORT_ERROR}")
+        mesh_case_with_gmsh_cli(stl_path, msh_path, mesh_size_mm)
+        return
 
     gmsh.initialize()
     try:
@@ -115,6 +118,43 @@ def mesh_case(stl_path: Path, msh_path: Path, mesh_size_mm: float) -> None:
         gmsh.write(str(msh_path))
     finally:
         gmsh.finalize()
+
+
+def mesh_case_with_gmsh_cli(stl_path: Path, msh_path: Path, mesh_size_mm: float) -> None:
+    gmsh_cmd = shutil.which("gmsh")
+    if gmsh_cmd is None:
+        raise RuntimeError(f"gmsh Python module is unavailable and gmsh command was not found: {GMsh_IMPORT_ERROR}")
+
+    geo_path = msh_path.with_suffix(".geo")
+    geo_path.write_text(
+        "\n".join(
+            [
+                f'Merge "{stl_path.resolve()}";',
+                "ClassifySurfaces{40*Pi/180, 1, 1, Pi};",
+                "CreateGeometry;",
+                "Surface Loop(1) = Surface{:};",
+                "Volume(1) = {1};",
+                f"Mesh.CharacteristicLengthMin = {mesh_size_mm};",
+                f"Mesh.CharacteristicLengthMax = {mesh_size_mm};",
+                "Mesh.Algorithm3D = 4;",
+                "Mesh.ElementOrder = 1;",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    subprocess.run(
+        [
+            gmsh_cmd,
+            str(geo_path),
+            "-3",
+            "-format",
+            "msh2",
+            "-o",
+            str(msh_path),
+        ],
+        check=True,
+    )
 
 
 def read_tetra_mesh(msh_path: Path) -> tuple[np.ndarray, np.ndarray]:
