@@ -67,6 +67,21 @@ Default output:
 assets/stl_connection_modes/
 ```
 
+## Network Validation
+
+After ranking candidate samples, run the reduced thermal-electrical network
+validation workflow with:
+
+```bash
+python3 scripts/run_network_validation.py \
+  --sampling-plan results/sampling_plan_top50.csv \
+  --out-dir results/network_validation \
+  --top-k 10
+```
+
+See [assets/network_validation_workflow.md](assets/network_validation_workflow.md)
+for assumptions, outputs, and interpretation.
+
 ## Main Analytical Estimates
 
 The database generator computes first-pass descriptors and estimates including:
@@ -84,4 +99,3 @@ invalid_reason
 ```
 
 These estimates are intended for database screening and design-space organization. Higher-fidelity FEM or experimental validation should be applied to selected representative samples.
-

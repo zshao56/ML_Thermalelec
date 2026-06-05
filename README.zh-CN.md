@@ -67,6 +67,20 @@ python3 scripts/generate_connection_stls.py
 assets/stl_connection_modes/
 ```
 
+## 网络模型验证
+
+候选样本排序完成后，可以运行第一版热-电网络模型验证流程：
+
+```bash
+python3 scripts/run_network_validation.py \
+  --sampling-plan results/sampling_plan_top50.csv \
+  --out-dir results/network_validation \
+  --top-k 10
+```
+
+模型假设、输出字段和结果解释见
+[assets/network_validation_workflow.md](assets/network_validation_workflow.md)。
+
 ## 主要解析估算结果
 
 数据库生成脚本会计算第一版筛选用的描述符和估算结果，包括：
@@ -84,4 +98,3 @@ invalid_reason
 ```
 
 这些结果适合用于数据库构建、设计空间整理和初筛。后续高精度结论仍建议对代表性样本进行 FEM 或实验验证。
-
