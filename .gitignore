@@ -15,7 +15,13 @@ data/*.db
 data/*.sqlite
 data/*.sqlite3
 data/*.sqlite-*
+data/*.csv
+data/batches/
 
 # Local exports and temporary files
 tmp/
 *.log
+
+# Generated simulation or evaluation outputs
+results/*
+!results/.gitkeep
