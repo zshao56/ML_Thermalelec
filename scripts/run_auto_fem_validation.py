@@ -19,9 +19,15 @@ import argparse
 import csv
 import json
 import math
+import os
 import shutil
 import subprocess
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
+
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 import numpy as np
 import scipy.sparse as sp
@@ -412,7 +418,13 @@ def solve_voxel_unit_cell(
     return kappa_eff, r_e, metadata
 
 
-def solve_unit_cell(job: dict[str, object], mesh_cache_dir: Path, force_mesh: bool, voxel_size_m: float) -> dict[str, object]:
+def solve_unit_cell(
+    job: dict[str, object],
+    mesh_cache_dir: Path,
+    force_mesh: bool,
+    voxel_size_m: float,
+    solver: str,
+) -> dict[str, object]:
     design = job["design"]
     materials = job["materials"]
     therm = materials["thermoelectric_coating"]
@@ -465,6 +477,8 @@ def solve_unit_cell(job: dict[str, object], mesh_cache_dir: Path, force_mesh: bo
     mesh_note = ""
     fallback_note = ""
     try:
+        if solver == "voxel":
+            raise RuntimeError("voxel solver requested")
         mesh_path = stl_path.with_suffix(".msh")
         if force_mesh or not mesh_path.exists():
             mesh_size_mm = max(0.15, min(0.6 * size1_m * 1000.0, 0.6 * t_ring_m * 1000.0, 0.35 * h_col_m * 1000.0))
@@ -498,7 +512,11 @@ def solve_unit_cell(job: dict[str, object], mesh_cache_dir: Path, force_mesh: bo
         r_e_fem = 1.0 / electrical_flow if electrical_flow > 0 else math.inf
         mesh_note = f"tetra={len(tets)}; nodes={len(points)}; mesh={mesh_path.name}"
     except Exception as exc:
+        if solver == "tetra":
+            raise
         fem_solver = "voxel_fvm_fallback"
+        if solver == "voxel":
+            fem_solver = "voxel_fvm"
         kappa_eff_fem, r_e_fem, voxel_meta = solve_voxel_unit_cell(
             design,
             kappa_mix,
@@ -512,7 +530,8 @@ def solve_unit_cell(job: dict[str, object], mesh_cache_dir: Path, force_mesh: bo
             f"grid={voxel_meta['nx']}x{voxel_meta['ny']}x{voxel_meta['nz']}; "
             f"voxel_size_m={voxel_meta['voxel_size_m']}"
         )
-        fallback_note = f"; tetra_fallback_reason={type(exc).__name__}: {exc}"
+        if solver == "auto":
+            fallback_note = f"; tetra_fallback_reason={type(exc).__name__}: {exc}"
 
     alpha_eff = float(therm["seebeck_v_k"])
     p_max_coeff = (alpha_eff * alpha_eff) / (4.0 * r_e_fem) if math.isfinite(r_e_fem) and r_e_fem > 0 else 0.0
@@ -557,12 +576,30 @@ def solve_unit_cell(job: dict[str, object], mesh_cache_dir: Path, force_mesh: bo
     }
 
 
+def solve_job_dir(args: tuple[str, bool, float, str]) -> tuple[str, dict[str, object]]:
+    job_dir_text, force_mesh, voxel_size_m, solver = args
+    job_dir = Path(job_dir_text)
+    input_json = job_dir / "input.json"
+    if not input_json.exists():
+        raise RuntimeError(f"Missing input.json: {input_json}")
+    job = read_json(input_json)
+    result = solve_unit_cell(job, job_dir, force_mesh, voxel_size_m, solver)
+    return job_dir.name, result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run automated FEM validation for prepared jobs.")
     parser.add_argument("--jobs-dir", default="results/fem_sampling/jobs")
     parser.add_argument("--template", default="results/fem_sampling/fem_results_template_200.csv")
     parser.add_argument("--output", default="results/fem_sampling/fem_results_200.csv")
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument(
+        "--solver",
+        choices=["auto", "tetra", "voxel"],
+        default="auto",
+        help="auto tries tetra meshing then voxel fallback; voxel skips gmsh and is much faster for current STL jobs.",
+    )
+    parser.add_argument("--workers", type=int, default=1, help="Parallel worker processes.")
     parser.add_argument("--force-mesh", action="store_true", help="Regenerate meshes even if cached .msh files exist.")
     parser.add_argument(
         "--voxel-size-m",
@@ -571,6 +608,8 @@ def main() -> None:
         help="Structured voxel size used when tetrahedral meshing fails.",
     )
     args = parser.parse_args()
+    if args.workers < 1:
+        raise SystemExit("--workers must be >= 1")
 
     jobs_dir = Path(args.jobs_dir)
     template_path = Path(args.template)
@@ -587,14 +626,22 @@ def main() -> None:
         raise SystemExit(f"No job directories found in {jobs_dir}")
 
     results = {}
-    for job_dir in job_dirs:
-        input_json = job_dir / "input.json"
-        if not input_json.exists():
-            raise SystemExit(f"Missing input.json: {input_json}")
-        job = read_json(input_json)
-        result = solve_unit_cell(job, job_dir, args.force_mesh, args.voxel_size_m)
-        results[str(result["fem_sample_id"])] = result
-        print(f"{job_dir.name}: kappa={result['kappa_eff_fem_w_mk']:.6g}, r_e={result['r_e_fem_ohm']:.6g}")
+    print(f"Jobs: {len(job_dirs)}")
+    print(f"Solver: {args.solver}")
+    print(f"Workers: {args.workers}")
+    task_args = [(str(job_dir), args.force_mesh, args.voxel_size_m, args.solver) for job_dir in job_dirs]
+    if args.workers == 1:
+        for task in task_args:
+            job_name, result = solve_job_dir(task)
+            results[str(result["fem_sample_id"])] = result
+            print(f"{job_name}: kappa={result['kappa_eff_fem_w_mk']:.6g}, r_e={result['r_e_fem_ohm']:.6g}")
+    else:
+        with ProcessPoolExecutor(max_workers=args.workers) as executor:
+            futures = [executor.submit(solve_job_dir, task) for task in task_args]
+            for future in as_completed(futures):
+                job_name, result = future.result()
+                results[str(result["fem_sample_id"])] = result
+                print(f"{job_name}: kappa={result['kappa_eff_fem_w_mk']:.6g}, r_e={result['r_e_fem_ohm']:.6g}")
 
     with template_path.open("r", newline="", encoding="utf-8") as f:
         template_rows = list(csv.DictReader(f))
