@@ -64,6 +64,7 @@ def main() -> None:
     parser.add_argument("--count", type=int, default=1000, help="Number of FEM samples to generate.")
     parser.add_argument("--workers", type=int, default=8, help="Parallel FEM worker processes.")
     parser.add_argument("--voxel-size-m", type=float, default=1.0e-4)
+    parser.add_argument("--progress-every", type=int, default=100)
     parser.add_argument("--ring-segments", type=int, default=64)
     parser.add_argument(
         "--keep-stl",
@@ -191,6 +192,8 @@ def main() -> None:
                     str(args.workers),
                     "--voxel-size-m",
                     str(args.voxel_size_m),
+                    "--progress-every",
+                    str(args.progress_every),
                 ],
                 args.dry_run,
             )
@@ -253,6 +256,7 @@ def main() -> None:
             "count": args.count,
             "workers": args.workers,
             "voxel_size_m": args.voxel_size_m,
+            "progress_every": args.progress_every,
             "keep_stl": bool(args.keep_stl),
             "sampling_csv": rel(sampling_csv),
             "jobs_dir": rel(jobs_dir),

@@ -22,6 +22,7 @@ import math
 import os
 import shutil
 import subprocess
+import time
 import warnings
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -669,6 +670,32 @@ def sample_id_from_job_dir(job_dir: Path) -> str:
     return job_dir.name.split("_", 1)[0]
 
 
+def format_duration(seconds: float) -> str:
+    seconds = max(0.0, seconds)
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m{secs:02d}s"
+    if minutes:
+        return f"{minutes}m{secs:02d}s"
+    return f"{secs}s"
+
+
+def progress_line(done: int, total: int, started_at: float) -> str:
+    elapsed = time.monotonic() - started_at
+    rate = done / elapsed if elapsed > 0.0 else 0.0
+    remaining = (total - done) / rate if rate > 0.0 else 0.0
+    avg = elapsed / done if done else 0.0
+    return (
+        f"Progress: {done}/{total} ({done / total * 100.0:.1f}%) | "
+        f"elapsed={format_duration(elapsed)} | "
+        f"eta={format_duration(remaining)} | "
+        f"rate={rate:.3g} jobs/s | "
+        f"avg={avg:.3g}s/job"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run automated FEM validation for prepared jobs.")
     parser.add_argument("--jobs-dir", default="results/fem_sampling/jobs")
@@ -694,9 +721,17 @@ def main() -> None:
         default=1.5e-4,
         help="Structured voxel size used when tetrahedral meshing fails.",
     )
+    parser.add_argument(
+        "--progress-every",
+        type=int,
+        default=25,
+        help="Print elapsed time and ETA every N completed jobs. Use 1 for every job.",
+    )
     args = parser.parse_args()
     if args.workers < 1:
         raise SystemExit("--workers must be >= 1")
+    if args.progress_every < 1:
+        raise SystemExit("--progress-every must be >= 1")
 
     jobs_dir = Path(args.jobs_dir)
     template_path = Path(args.template)
@@ -726,18 +761,26 @@ def main() -> None:
     if args.sample_ids_csv:
         print(f"Sample filter: {args.sample_ids_csv}")
     task_args = [(str(job_dir), args.force_mesh, args.voxel_size_m, args.solver) for job_dir in job_dirs]
+    started_at = time.monotonic()
+    completed = 0
     if args.workers == 1:
         for task in task_args:
             job_name, result = solve_job_dir(task)
             results[str(result["fem_sample_id"])] = result
+            completed += 1
             print(f"{job_name}: kappa={result['kappa_eff_fem_w_mk']:.6g}, r_e={result['r_e_fem_ohm']:.6g}")
+            if completed == len(task_args) or completed % args.progress_every == 0:
+                print(progress_line(completed, len(task_args), started_at), flush=True)
     else:
         with ProcessPoolExecutor(max_workers=args.workers) as executor:
             futures = [executor.submit(solve_job_dir, task) for task in task_args]
             for future in as_completed(futures):
                 job_name, result = future.result()
                 results[str(result["fem_sample_id"])] = result
+                completed += 1
                 print(f"{job_name}: kappa={result['kappa_eff_fem_w_mk']:.6g}, r_e={result['r_e_fem_ohm']:.6g}")
+                if completed == len(task_args) or completed % args.progress_every == 0:
+                    print(progress_line(completed, len(task_args), started_at), flush=True)
 
     with template_path.open("r", newline="", encoding="utf-8") as f:
         template_rows = list(csv.DictReader(f))
