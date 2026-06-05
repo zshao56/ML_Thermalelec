@@ -67,6 +67,14 @@ fabrication_note
 
 These are intrinsic labels and should not include application scenarios.
 
+Create a result-entry template:
+
+```bash
+python3 scripts/make_fem_results_template.py \
+  --input results/fem_sampling/fem_sampling_200.csv \
+  --output results/fem_sampling/fem_results_template_200.csv
+```
+
 ## 4. Recommended order
 
 Start with the first 5 jobs, confirm geometry import and boundary settings, then
