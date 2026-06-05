@@ -53,17 +53,16 @@ LOG_TARGETS = {
 def import_sklearn():
     try:
         import joblib
-        from sklearn.compose import ColumnTransformer
         from sklearn.ensemble import ExtraTreesRegressor
+        from sklearn.feature_extraction import DictVectorizer
         from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import OneHotEncoder
     except Exception as exc:
         raise SystemExit(
             "scikit-learn/joblib is required for this trainer. Install on the server with:\n"
             "  conda install -c conda-forge scikit-learn joblib\n"
             f"Import error: {exc}"
         )
-    return joblib, ColumnTransformer, ExtraTreesRegressor, Pipeline, OneHotEncoder
+    return joblib, DictVectorizer, ExtraTreesRegressor, Pipeline
 
 
 def parse_float(row: dict[str, str], field: str) -> float:
@@ -168,20 +167,6 @@ def write_predictions(path: Path, rows: list[dict[str, str]], predictions: dict[
             writer.writerow(output)
 
 
-def make_preprocessor(ColumnTransformer, OneHotEncoder):
-    try:
-        encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
-    except TypeError:
-        encoder = OneHotEncoder(handle_unknown="ignore", sparse=False)
-    return ColumnTransformer(
-        transformers=[
-            ("numeric", "passthrough", NUMERIC_FEATURES),
-            ("categorical", encoder, CATEGORICAL_FEATURES),
-        ],
-        remainder="drop",
-    )
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train a nonlinear scikit-learn FEM surrogate.")
     parser.add_argument("--input", default="results/fem_sampling/fem_training_dataset_1000_voxel100um.csv")
@@ -194,7 +179,7 @@ def main() -> None:
     parser.add_argument("--n-jobs", type=int, default=-1)
     args = parser.parse_args()
 
-    joblib, ColumnTransformer, ExtraTreesRegressor, Pipeline, OneHotEncoder = import_sklearn()
+    joblib, DictVectorizer, ExtraTreesRegressor, Pipeline = import_sklearn()
 
     input_path = Path(args.input)
     out_dir = Path(args.out_dir)
@@ -211,7 +196,7 @@ def main() -> None:
     for target in TARGETS:
         model = Pipeline(
             steps=[
-                ("preprocess", make_preprocessor(ColumnTransformer, OneHotEncoder)),
+                ("preprocess", DictVectorizer(sparse=False)),
                 (
                     "regressor",
                     ExtraTreesRegressor(
