@@ -22,6 +22,7 @@ import math
 import os
 import shutil
 import subprocess
+import warnings
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
@@ -32,6 +33,7 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
+from scipy.sparse.linalg import MatrixRankWarning
 
 try:
     import gmsh  # type: ignore
@@ -220,7 +222,11 @@ def solve_dirichlet(K: sp.csr_matrix, fixed: dict[int, float]) -> np.ndarray:
     K_ff = K[free_nodes][:, free_nodes]
     K_fb = K[free_nodes][:, fixed_nodes]
     rhs = -K_fb @ fixed_values
-    u[free_nodes] = spla.spsolve(K_ff, rhs)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", MatrixRankWarning)
+        u[free_nodes] = spla.spsolve(K_ff, rhs)
+    if not np.all(np.isfinite(u)):
+        raise RuntimeError("Linear solve produced non-finite values")
     return u
 
 
@@ -402,6 +408,44 @@ def solve_voxel_conductance(mask: np.ndarray, spacing: tuple[float, float, float
     return float(u @ (K @ u))
 
 
+def count_connected_boundary_components(mask: np.ndarray) -> tuple[int, bool]:
+    coords = np.argwhere(mask)
+    if coords.size == 0:
+        return 0, False
+    z_min = int(coords[:, 2].min())
+    z_max = int(coords[:, 2].max())
+    visited = np.zeros(mask.shape, dtype=bool)
+    components = 0
+    has_spanning_component = False
+    directions = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
+    nx, ny, nz = mask.shape
+
+    for start in coords:
+        i, j, k = (int(start[0]), int(start[1]), int(start[2]))
+        if visited[i, j, k]:
+            continue
+        components += 1
+        touches_bottom = k == z_min
+        touches_top = k == z_max
+        stack = [(i, j, k)]
+        visited[i, j, k] = True
+        while stack:
+            ci, cj, ck = stack.pop()
+            touches_bottom = touches_bottom or ck == z_min
+            touches_top = touches_top or ck == z_max
+            for di, dj, dk in directions:
+                ni, nj, nk = ci + di, cj + dj, ck + dk
+                if ni < 0 or ni >= nx or nj < 0 or nj >= ny or nk < 0 or nk >= nz:
+                    continue
+                if not mask[ni, nj, nk] or visited[ni, nj, nk]:
+                    continue
+                visited[ni, nj, nk] = True
+                stack.append((ni, nj, nk))
+        has_spanning_component = has_spanning_component or (touches_bottom and touches_top)
+
+    return components, has_spanning_component
+
+
 def solve_voxel_unit_cell(
     design: dict[str, object],
     kappa_mix: float,
@@ -411,6 +455,13 @@ def solve_voxel_unit_cell(
     l_device_m: float,
 ) -> tuple[float, float, dict[str, object]]:
     mask, spacing, metadata = build_voxel_mask(design, voxel_size_m)
+    components, has_spanning_component = count_connected_boundary_components(mask)
+    metadata["connected_components"] = components
+    metadata["has_spanning_component"] = has_spanning_component
+    if not has_spanning_component:
+        raise RuntimeError(
+            f"Voxelized geometry has no connected path between bottom and top boundaries; components={components}"
+        )
     thermal_flow = solve_voxel_conductance(mask, spacing, kappa_mix)
     electrical_flow = solve_voxel_conductance(mask, spacing, sigma_mix)
     kappa_eff = thermal_flow * l_device_m / a_device_m2 if a_device_m2 > 0 else 0.0
@@ -476,6 +527,8 @@ def solve_unit_cell(
     fem_solver = "gmsh+scipy_tetra_poisson"
     mesh_note = ""
     fallback_note = ""
+    result_valid = 1
+    invalid_reason = ""
     try:
         if solver == "voxel":
             raise RuntimeError("voxel solver requested")
@@ -517,21 +570,29 @@ def solve_unit_cell(
         fem_solver = "voxel_fvm_fallback"
         if solver == "voxel":
             fem_solver = "voxel_fvm"
-        kappa_eff_fem, r_e_fem, voxel_meta = solve_voxel_unit_cell(
-            design,
-            kappa_mix,
-            sigma_mix,
-            voxel_size_m,
-            a_device_m2,
-            l_device_m,
-        )
-        mesh_note = (
-            f"voxel={voxel_meta['occupied_cells']}; "
-            f"grid={voxel_meta['nx']}x{voxel_meta['ny']}x{voxel_meta['nz']}; "
-            f"voxel_size_m={voxel_meta['voxel_size_m']}"
-        )
-        if solver == "auto":
-            fallback_note = f"; tetra_fallback_reason={type(exc).__name__}: {exc}"
+        try:
+            kappa_eff_fem, r_e_fem, voxel_meta = solve_voxel_unit_cell(
+                design,
+                kappa_mix,
+                sigma_mix,
+                voxel_size_m,
+                a_device_m2,
+                l_device_m,
+            )
+            mesh_note = (
+                f"voxel={voxel_meta['occupied_cells']}; "
+                f"grid={voxel_meta['nx']}x{voxel_meta['ny']}x{voxel_meta['nz']}; "
+                f"voxel_size_m={voxel_meta['voxel_size_m']}; "
+                f"components={voxel_meta['connected_components']}"
+            )
+            if solver == "auto":
+                fallback_note = f"; tetra_fallback_reason={type(exc).__name__}: {exc}"
+        except Exception as voxel_exc:
+            result_valid = 0
+            invalid_reason = f"{type(voxel_exc).__name__}: {voxel_exc}"
+            kappa_eff_fem = math.nan
+            r_e_fem = math.inf
+            mesh_note = f"voxel_failed; voxel_size_m={voxel_size_m}"
 
     alpha_eff = float(therm["seebeck_v_k"])
     p_max_coeff = (alpha_eff * alpha_eff) / (4.0 * r_e_fem) if math.isfinite(r_e_fem) and r_e_fem > 0 else 0.0
@@ -558,7 +619,9 @@ def solve_unit_cell(
         "network_alpha_device_v_k": job["intrinsic_network_prediction"]["alpha_device_v_k"],
         "network_p_max_coeff_w_k2": job["intrinsic_network_prediction"]["p_max_coeff_w_k2"],
         "network_p_area_coeff_w_m2_k2": job["intrinsic_network_prediction"]["p_area_coeff_w_m2_k2"],
-        "fem_status": "done",
+        "fem_status": "done" if result_valid else "invalid",
+        "fem_valid": result_valid,
+        "fem_invalid_reason": invalid_reason,
         "fem_solver": fem_solver,
         "mesh_note": mesh_note,
         "kappa_eff_fem_w_mk": kappa_eff_fem,
@@ -572,6 +635,7 @@ def solve_unit_cell(
             f"homogenized_mix kappa={kappa_mix:.6g} sigma={sigma_mix:.6g} "
             f"f_scaffold={f_scaffold:.6g} f_coating={f_coating:.6g} f_air={f_air:.6g}"
             f"{fallback_note}"
+            + (f"; invalid_reason={invalid_reason}" if invalid_reason else "")
         ),
     }
 
@@ -649,6 +713,9 @@ def main() -> None:
         raise SystemExit(f"No rows found in template: {template_path}")
 
     fieldnames = list(template_rows[0].keys())
+    for field in ["fem_valid", "fem_invalid_reason"]:
+        if field not in fieldnames:
+            fieldnames.append(field)
     output_rows = []
     for row in template_rows:
         sample_id = row["fem_sample_id"]

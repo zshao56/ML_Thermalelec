@@ -30,6 +30,8 @@ OUTPUT_FIELDS = [
     "network_p_max_coeff_w_k2",
     "network_p_area_coeff_w_m2_k2",
     "fem_status",
+    "fem_valid",
+    "fem_invalid_reason",
     "fem_solver",
     "mesh_note",
     "kappa_eff_fem_w_mk",
@@ -77,6 +79,8 @@ def main() -> None:
         for src, dst in SOURCE_TO_OUTPUT.items():
             output[dst] = row.get(src, "")
         output["fem_status"] = "pending"
+        output["fem_valid"] = ""
+        output["fem_invalid_reason"] = ""
         output["fem_solver"] = ""
         output["mesh_note"] = ""
         output_rows.append(output)
