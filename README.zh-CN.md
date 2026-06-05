@@ -83,6 +83,13 @@ python3 scripts/run_dataset_pipeline.py \
   --limit-fem-jobs 5
 ```
 
+如果环境检查显示缺少 FEM 求解器，在当前 conda 环境中安装开源 FEM 栈：
+
+```bash
+conda activate teml
+bash scripts/install_fem_stack_conda.sh
+```
+
 ## 生成 STL 示例
 
 6 个默认元胞 STL 文件可以用下面命令重新生成：

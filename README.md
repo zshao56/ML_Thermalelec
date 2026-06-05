@@ -85,6 +85,14 @@ python3 scripts/run_dataset_pipeline.py \
   --limit-fem-jobs 5
 ```
 
+If the environment check reports that FEM solvers are missing, install the
+open-source FEM stack into the active conda environment:
+
+```bash
+conda activate teml
+bash scripts/install_fem_stack_conda.sh
+```
+
 ## Generate STL Previews
 
 Six default unit-cell STL files can be regenerated with:
