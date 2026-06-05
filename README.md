@@ -53,6 +53,38 @@ Default output:
 data/unit_cell_design_space.sqlite
 ```
 
+## One-Command Server Pipeline
+
+On the Linux server, use the pipeline driver for training-data preparation and
+FEM job generation:
+
+```bash
+python3 scripts/run_dataset_pipeline.py --workers 32 --fem-count 200
+```
+
+It runs:
+
+```text
+design database -> valid batches -> intrinsic network labels -> dataset audit
+-> FEM sampling set -> STL/input.json job folders -> FEM result template
+-> FEM environment check
+```
+
+Existing intermediate outputs are reused by default. To regenerate everything:
+
+```bash
+python3 scripts/run_dataset_pipeline.py --workers 32 --fem-count 200 --force
+```
+
+For a small STL job smoke test:
+
+```bash
+python3 scripts/run_dataset_pipeline.py \
+  --workers 32 \
+  --fem-count 200 \
+  --limit-fem-jobs 5
+```
+
 ## Generate STL Previews
 
 Six default unit-cell STL files can be regenerated with:

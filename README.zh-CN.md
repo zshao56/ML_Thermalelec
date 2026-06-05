@@ -53,6 +53,36 @@ python3 scripts/build_unit_cell_database.py --overwrite
 data/unit_cell_design_space.sqlite
 ```
 
+## 服务器端一键数据流程
+
+正式在 Linux 服务器上准备训练数据和 FEM 采样任务时，优先使用总控脚本：
+
+```bash
+python3 scripts/run_dataset_pipeline.py --workers 32 --fem-count 200
+```
+
+这个命令会自动完成：
+
+```text
+设计空间数据库 -> 有效样本分批 -> 本征网络标签 -> 数据审查
+-> FEM 采样集 -> STL/input.json job 文件夹 -> FEM 结果模板 -> FEM 环境检查
+```
+
+它默认复用已经存在的中间结果；如果要全部重跑，加：
+
+```bash
+python3 scripts/run_dataset_pipeline.py --workers 32 --fem-count 200 --force
+```
+
+如果只想先测试少量 STL job：
+
+```bash
+python3 scripts/run_dataset_pipeline.py \
+  --workers 32 \
+  --fem-count 200 \
+  --limit-fem-jobs 5
+```
+
 ## 生成 STL 示例
 
 6 个默认元胞 STL 文件可以用下面命令重新生成：
