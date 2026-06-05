@@ -518,11 +518,15 @@ def solve_unit_cell(
     )
     sigma_mix = max(f_coating * float(therm["sigma_s_m"]), 1e-18)
 
-    stl_path = Path(job["geometry_file"])
-    if not stl_path.is_absolute():
+    geometry_file = str(job.get("geometry_file", ""))
+    stl_path = Path(geometry_file) if geometry_file else None
+    if stl_path is not None and not stl_path.is_absolute():
         stl_path = mesh_cache_dir / stl_path
-    if not stl_path.exists():
-        raise FileNotFoundError(stl_path)
+    if solver != "voxel":
+        if stl_path is None:
+            raise FileNotFoundError("geometry_file is required for tetra solver")
+        if not stl_path.exists():
+            raise FileNotFoundError(stl_path)
 
     fem_solver = "gmsh+scipy_tetra_poisson"
     mesh_note = ""
@@ -532,6 +536,8 @@ def solve_unit_cell(
     try:
         if solver == "voxel":
             raise RuntimeError("voxel solver requested")
+        if stl_path is None:
+            raise FileNotFoundError("geometry_file is required for tetra solver")
         mesh_path = stl_path.with_suffix(".msh")
         if force_mesh or not mesh_path.exists():
             mesh_size_mm = max(0.15, min(0.6 * size1_m * 1000.0, 0.6 * t_ring_m * 1000.0, 0.35 * h_col_m * 1000.0))

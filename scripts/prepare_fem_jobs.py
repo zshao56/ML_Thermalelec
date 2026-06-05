@@ -103,7 +103,7 @@ def intrinsic_payload(row: dict[str, str]) -> dict[str, object]:
     return {key: numeric(row[key]) for key in keys if key in row}
 
 
-def job_payload(row: dict[str, str], stl_name: str) -> dict[str, object]:
+def job_payload(row: dict[str, str], stl_name: str | None) -> dict[str, object]:
     return {
         "fem_sample_id": row.get("fem_sample_id", ""),
         "case_id": row["case_id"],
@@ -111,7 +111,7 @@ def job_payload(row: dict[str, str], stl_name: str) -> dict[str, object]:
             "priority": row.get("selection_priority", ""),
             "reason": row.get("selection_reason", ""),
         },
-        "geometry_file": stl_name,
+        "geometry_file": stl_name or "",
         "geometry_units": "mm",
         "design": design_payload(row),
         "materials": {
@@ -144,6 +144,11 @@ def main() -> None:
     parser.add_argument("--out-dir", default="results/fem_sampling/jobs")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--ring-segments", type=int, default=64, help="Ring tessellation segments for STL output.")
+    parser.add_argument(
+        "--skip-stl",
+        action="store_true",
+        help="Write input.json job folders only. Use this for voxel solver runs to save disk space.",
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -170,9 +175,13 @@ def main() -> None:
         job_dir = out_dir / f"{sample_id}_case_{row['case_id']}"
         job_dir.mkdir(parents=True, exist_ok=True)
 
-        triangles, metadata = make_case_mesh(row, ring_segments=args.ring_segments)
-        stl_name = "geometry.stl"
-        triangle_count = write_ascii_stl(job_dir / stl_name, f"case_{row['case_id']}", triangles)
+        stl_name = None
+        triangle_count = 0
+        metadata = {"stl_skipped": bool(args.skip_stl)}
+        if not args.skip_stl:
+            triangles, metadata = make_case_mesh(row, ring_segments=args.ring_segments)
+            stl_name = "geometry.stl"
+            triangle_count = write_ascii_stl(job_dir / stl_name, f"case_{row['case_id']}", triangles)
 
         payload = job_payload(row, stl_name)
         payload["stl_metadata"] = metadata
@@ -186,11 +195,14 @@ def main() -> None:
                 "case_id": row["case_id"],
                 "job_dir": str(job_dir),
                 "input_json": str(input_json),
-                "geometry_stl": str(job_dir / stl_name),
+                "geometry_stl": str(job_dir / stl_name) if stl_name else "",
                 "triangles": triangle_count,
             }
         )
-        print(f"{job_dir}  triangles={triangle_count}")
+        if args.skip_stl:
+            print(f"{job_dir}  stl=skipped")
+        else:
+            print(f"{job_dir}  triangles={triangle_count}")
 
     manifest_path = out_dir / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")

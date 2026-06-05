@@ -65,6 +65,11 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=8, help="Parallel FEM worker processes.")
     parser.add_argument("--voxel-size-m", type=float, default=1.0e-4)
     parser.add_argument("--ring-segments", type=int, default=64)
+    parser.add_argument(
+        "--keep-stl",
+        action="store_true",
+        help="Generate geometry.stl files. Default is off because voxel solver does not need STL files.",
+    )
     parser.add_argument("--intrinsic-dataset", default="results/intrinsic_network_dataset.csv")
     parser.add_argument("--db-path", default="data/unit_cell_design_space.sqlite")
     parser.add_argument("--out-root", default="results/fem_sampling")
@@ -99,6 +104,7 @@ def main() -> None:
     print(f"FEM samples: {args.count}")
     print(f"Workers: {args.workers}")
     print(f"Voxel size: {args.voxel_size_m} m")
+    print(f"Generate STL files: {bool(args.keep_stl)}")
     print("This generates scenario-independent FEM labels for surrogate training.")
 
     stages: list[Stage] = []
@@ -144,19 +150,22 @@ def main() -> None:
         stages.append(skip_stage("make_fem_results_template", f"exists: {rel(template_csv)}"))
 
     if args.force or not manifest_ready(jobs_dir / "manifest.json", args.count):
+        prepare_cmd = [
+            sys.executable,
+            str(SCRIPT_DIR / "prepare_fem_jobs.py"),
+            "--input",
+            rel(sampling_csv),
+            "--out-dir",
+            rel(jobs_dir),
+            "--ring-segments",
+            str(args.ring_segments),
+        ]
+        if not args.keep_stl:
+            prepare_cmd.append("--skip-stl")
         stages.append(
             run_stage(
                 "prepare_fem_jobs",
-                [
-                    sys.executable,
-                    str(SCRIPT_DIR / "prepare_fem_jobs.py"),
-                    "--input",
-                    rel(sampling_csv),
-                    "--out-dir",
-                    rel(jobs_dir),
-                    "--ring-segments",
-                    str(args.ring_segments),
-                ],
+                prepare_cmd,
                 args.dry_run,
             )
         )
@@ -244,6 +253,7 @@ def main() -> None:
             "count": args.count,
             "workers": args.workers,
             "voxel_size_m": args.voxel_size_m,
+            "keep_stl": bool(args.keep_stl),
             "sampling_csv": rel(sampling_csv),
             "jobs_dir": rel(jobs_dir),
             "results_csv": rel(results_csv),
