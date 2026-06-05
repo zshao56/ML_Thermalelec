@@ -82,6 +82,26 @@ python3 scripts/run_network_validation.py \
 See [assets/network_validation_workflow.md](assets/network_validation_workflow.md)
 for assumptions, outputs, and interpretation.
 
+## Intrinsic ML Dataset
+
+For the main general surrogate model, generate scenario-independent intrinsic
+labels. Application scenarios are reserved for final validation and inverse
+design checks.
+
+```bash
+python3 scripts/run_intrinsic_batches.py \
+  --input-dir data/batches \
+  --out-dir results/intrinsic_network_batches \
+  --workers 32 \
+  --combined-output results/intrinsic_network_dataset.csv
+```
+
+Default output:
+
+```text
+results/intrinsic_network_dataset.csv
+```
+
 ## Main Analytical Estimates
 
 The database generator computes first-pass descriptors and estimates including:

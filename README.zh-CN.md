@@ -81,6 +81,24 @@ python3 scripts/run_network_validation.py \
 模型假设、输出字段和结果解释见
 [assets/network_validation_workflow.md](assets/network_validation_workflow.md)。
 
+## 本征机器学习数据集
+
+主代理模型训练应使用不绑定应用场景的本征标签。具体应用场景只用于最终验证和逆向设计检查。
+
+```bash
+python3 scripts/run_intrinsic_batches.py \
+  --input-dir data/batches \
+  --out-dir results/intrinsic_network_batches \
+  --workers 32 \
+  --combined-output results/intrinsic_network_dataset.csv
+```
+
+默认输出：
+
+```text
+results/intrinsic_network_dataset.csv
+```
+
 ## 主要解析估算结果
 
 数据库生成脚本会计算第一版筛选用的描述符和估算结果，包括：

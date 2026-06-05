@@ -149,3 +149,27 @@ analytic screening -> network validation -> high-fidelity FEM or experiment
 
 The network model is useful for selecting which samples deserve expensive FEM or
 experimental measurement. It should not be treated as the final physical truth.
+
+## Intrinsic ML Dataset
+
+For training a general surrogate model, use scenario-independent intrinsic
+labels. Do not train the main surrogate on application scenarios.
+
+Run all valid-case batches:
+
+```bash
+python3 scripts/run_intrinsic_batches.py \
+  --input-dir data/batches \
+  --out-dir results/intrinsic_network_batches \
+  --workers 32 \
+  --combined-output results/intrinsic_network_dataset.csv
+```
+
+This produces one row per valid design case:
+
+```text
+results/intrinsic_network_dataset.csv
+```
+
+The scenario-specific scripts are for final application evaluation and inverse
+design checks, not for the main intrinsic surrogate training target.
