@@ -62,6 +62,30 @@ python3 scripts/solve_network_model.py \
   --output results/network_results_top50.csv
 ```
 
+## Generate STL previews
+
+After selecting key design cases, export their full database rows and generate
+STL previews:
+
+```bash
+sqlite3 -header -csv data/unit_cell_design_space.sqlite \
+  "SELECT * FROM unit_cell_designs WHERE case_id IN (106267,97243,106027);" \
+  > results/network_validation/key_design_cases.csv
+
+python3 scripts/generate_case_stls.py \
+  --input results/network_validation/key_design_cases.csv \
+  --out-dir results/network_validation/stl_cases
+```
+
+Main outputs:
+
+```text
+results/network_validation/stl_cases/case_106267.stl
+results/network_validation/stl_cases/case_97243.stl
+results/network_validation/stl_cases/case_106027.stl
+results/network_validation/stl_cases/manifest.json
+```
+
 ## Output labels
 
 The network result file contains:
