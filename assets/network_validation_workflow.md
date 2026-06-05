@@ -86,6 +86,24 @@ results/network_validation/stl_cases/case_106027.stl
 results/network_validation/stl_cases/manifest.json
 ```
 
+## Create validation template
+
+After confirming the STL files are fabricable, copy the key cases and create the
+data-entry template for experiment or high-fidelity FEM results:
+
+```bash
+cp results/network_validation/key_design_cases.csv \
+  results/network_validation/fabrication_ready_cases.csv
+
+python3 scripts/make_validation_template.py \
+  --cases results/network_validation/fabrication_ready_cases.csv \
+  --network-results results/network_validation/network_results.csv \
+  --output results/network_validation/validation_template.csv
+```
+
+The generated template keeps the network predictions and leaves measured fields
+blank for validation data entry.
+
 ## Output labels
 
 The network result file contains:
