@@ -104,6 +104,20 @@ python3 scripts/make_validation_template.py \
 The generated template keeps the network predictions and leaves measured fields
 blank for validation data entry.
 
+## Compare validation data
+
+After filling measured or high-fidelity FEM fields in the validation template,
+compare them against the network predictions:
+
+```bash
+python3 scripts/compare_network_vs_validation.py \
+  --input results/network_validation/validation_template.csv \
+  --output results/network_validation/network_validation_errors.csv
+```
+
+If no measured fields are filled yet, the script exits cleanly and reports that
+there is nothing to compare.
+
 ## Output labels
 
 The network result file contains:
