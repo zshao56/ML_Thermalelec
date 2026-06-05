@@ -93,6 +93,16 @@ conda activate teml
 bash scripts/install_fem_stack_conda.sh
 ```
 
+If `gmsh` and `meshio` are already available, run an automated FEM smoke test:
+
+```bash
+python3 scripts/run_auto_fem_validation.py \
+  --jobs-dir results/fem_sampling/jobs \
+  --template results/fem_sampling/fem_results_template_200.csv \
+  --output results/fem_sampling/fem_results_200.csv \
+  --limit 5
+```
+
 ## Generate STL Previews
 
 Six default unit-cell STL files can be regenerated with:

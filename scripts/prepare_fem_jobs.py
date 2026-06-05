@@ -71,6 +71,14 @@ def design_payload(row: dict[str, str]) -> dict[str, object]:
         "material_name",
         "carrier_type",
         "t_coating_m",
+        "v_scaffold_m3",
+        "v_coating_m3",
+        "v_air_m3",
+        "f_scaffold",
+        "f_coating",
+        "f_air",
+        "porosity",
+        "coverage_ratio",
     ]
     payload = {}
     for key in keys:

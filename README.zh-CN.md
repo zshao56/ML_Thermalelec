@@ -90,6 +90,16 @@ conda activate teml
 bash scripts/install_fem_stack_conda.sh
 ```
 
+如果你已经有 `gmsh` 和 `meshio`，可以直接跑自动 FEM 烟雾测试：
+
+```bash
+python3 scripts/run_auto_fem_validation.py \
+  --jobs-dir results/fem_sampling/jobs \
+  --template results/fem_sampling/fem_results_template_200.csv \
+  --output results/fem_sampling/fem_results_200.csv \
+  --limit 5
+```
+
 ## 生成 STL 示例
 
 6 个默认元胞 STL 文件可以用下面命令重新生成：
