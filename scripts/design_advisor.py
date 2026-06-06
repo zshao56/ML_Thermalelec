@@ -13,6 +13,8 @@ from pathlib import Path
 
 
 OBJECTIVES = {
+    "max_device_p_area": ("device_p_area_w_m2", "max"),
+    "max_device_p_max": ("device_p_max_w", "max"),
     "max_p_area": ("p_area_coeff_fem_w_m2_k2", "max"),
     "max_p_max": ("p_max_coeff_fem_w_k2", "max"),
     "min_kappa": ("kappa_eff_fem_w_mk", "min"),
@@ -40,6 +42,16 @@ FILTER_ARGS = [
     "min_p_max",
     "min_p_area",
     "alpha_sign",
+]
+
+APPLICATION_ARGS = [
+    "boundary_type",
+    "t_hot_k",
+    "t_cold_k",
+    "h_c_w_m2k",
+    "q_hot_w_m2",
+    "area_m2",
+    "length_m",
 ]
 
 
@@ -92,6 +104,11 @@ def write_advisor_summary(
         "score_target": score_target,
         "direction": direction,
         "conditions": conditions,
+        "application_conditions": {
+            name: getattr(args, name)
+            for name in APPLICATION_ARGS
+            if getattr(args, name) is not None
+        },
         "surrogate_top_k": args.top_k,
         "fem_check": args.fem_check,
         "recommendations": args.recommendations,
@@ -103,7 +120,7 @@ def write_advisor_summary(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run condition-based inverse design with optional FEM confirmation.")
-    parser.add_argument("--objective", choices=sorted(OBJECTIVES), default="max_p_area")
+    parser.add_argument("--objective", choices=sorted(OBJECTIVES), default="max_device_p_area")
     parser.add_argument("--model", default="results/fem_surrogate_80000_voxel100um_sklearn/fem_surrogate_sklearn.joblib")
     parser.add_argument("--candidates", default="results/intrinsic_network_dataset.csv")
     parser.add_argument("--db-path", default="data/unit_cell_design_space.sqlite")
@@ -116,6 +133,17 @@ def main() -> None:
     parser.add_argument("--voxel-size-m", type=float, default=1.0e-4)
     parser.add_argument("--progress-every", type=int, default=25)
     parser.add_argument("--chunk-size", type=int, default=20000)
+    parser.add_argument(
+        "--boundary-type",
+        choices=["fixed_hot_surface_cold_convection", "fixed_q_cold_convection"],
+        default="fixed_hot_surface_cold_convection",
+    )
+    parser.add_argument("--t-hot-k", type=float, default=393.15)
+    parser.add_argument("--t-cold-k", type=float, default=293.15)
+    parser.add_argument("--h-c-w-m2k", type=float, default=10.0)
+    parser.add_argument("--q-hot-w-m2", type=float, default=None)
+    parser.add_argument("--area-m2", type=float, default=None)
+    parser.add_argument("--length-m", type=float, default=None)
     parser.add_argument("--material", default="")
     parser.add_argument("--carrier", choices=["", "p", "n"], default="")
     parser.add_argument("--column-type", default="")
@@ -147,6 +175,10 @@ def main() -> None:
         raise SystemExit("--recommendations must be positive")
     if args.workers < 1:
         raise SystemExit("--workers must be >= 1")
+    if args.h_c_w_m2k <= 0.0:
+        raise SystemExit("--h-c-w-m2k must be positive")
+    if args.boundary_type == "fixed_q_cold_convection" and args.q_hot_w_m2 is None:
+        raise SystemExit("--q-hot-w-m2 is required when --boundary-type fixed_q_cold_convection")
 
     score_target, direction = OBJECTIVES[args.objective]
     run_name = slug(args.run_name) if args.run_name else default_run_name(args)
@@ -177,6 +209,8 @@ def main() -> None:
         str(args.chunk_size),
     ]
     for name in FILTER_ARGS:
+        add_optional(search_cmd, kebab(name), getattr(args, name))
+    for name in APPLICATION_ARGS:
         add_optional(search_cmd, kebab(name), getattr(args, name))
     run_command(search_cmd)
 
@@ -229,6 +263,8 @@ def main() -> None:
             "--top-k",
             str(args.recommendations),
         ]
+        for name in APPLICATION_ARGS:
+            add_optional(rank_cmd, kebab(name), getattr(args, name))
         run_command(rank_cmd)
         outputs.update(
             {

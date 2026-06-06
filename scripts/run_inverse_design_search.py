@@ -26,6 +26,17 @@ TARGETS = [
     "p_area_coeff_fem_w_m2_k2",
 ]
 
+DEVICE_TARGETS = [
+    "device_delta_t_k",
+    "device_v_oc_v",
+    "device_abs_v_oc_v",
+    "device_p_max_w",
+    "device_p_area_w_m2",
+    "device_q_hot_w_m2",
+    "device_t_hot_k",
+    "device_t_cold_k",
+]
+
 LOG_TARGETS = {
     "kappa_eff_fem_w_mk",
     "r_e_fem_ohm",
@@ -169,7 +180,72 @@ def pass_prediction_filters(pred: dict[str, float], args: argparse.Namespace) ->
     return True
 
 
-def format_output_row(row: dict[str, str], pred: dict[str, float], score_target: str, score: float) -> dict[str, object]:
+def row_float(row: dict[str, str], field: str, default: float) -> float:
+    value = row.get(field, "")
+    if value == "":
+        return default
+    return finite_float(value, field)
+
+
+def device_metrics(row: dict[str, str], pred: dict[str, float], args: argparse.Namespace) -> dict[str, float]:
+    area_m2 = args.area_m2 if args.area_m2 is not None else row_float(row, "a_device_m2", math.pi * 0.002 * 0.002)
+    length_m = args.length_m if args.length_m is not None else row_float(row, "l_device_m", 0.01)
+    if area_m2 <= 0.0:
+        raise ValueError("--area-m2 / a_device_m2 must be positive")
+    if length_m <= 0.0:
+        raise ValueError("--length-m / l_device_m must be positive")
+
+    kappa = pred["kappa_eff_fem_w_mk"]
+    r_e = pred["r_e_fem_ohm"]
+    alpha = pred["alpha_eff_fem_v_k"]
+    if kappa <= 0.0:
+        raise ValueError("Predicted kappa must be positive for device scoring")
+
+    if args.boundary_type == "fixed_hot_surface_cold_convection":
+        delta_t_source = args.t_hot_k - args.t_cold_k
+        delta_t_device = delta_t_source * length_m / (length_m + kappa / args.h_c_w_m2k)
+        t_hot_device = args.t_hot_k
+        t_cold_device = t_hot_device - delta_t_device
+        q_hot_w_m2 = kappa * delta_t_device / length_m
+        delta_t_retention = delta_t_device / delta_t_source if delta_t_source else 0.0
+    elif args.boundary_type == "fixed_q_cold_convection":
+        if args.q_hot_w_m2 is None:
+            raise ValueError("--q-hot-w-m2 is required for fixed_q_cold_convection")
+        q_hot_w_m2 = args.q_hot_w_m2
+        delta_t_device = q_hot_w_m2 * length_m / kappa
+        t_cold_device = args.t_cold_k + q_hot_w_m2 / args.h_c_w_m2k
+        t_hot_device = t_cold_device + delta_t_device
+        delta_t_retention = 1.0
+    else:
+        raise ValueError(f"Unknown boundary_type: {args.boundary_type}")
+
+    v_oc = alpha * delta_t_device
+    p_max = (v_oc * v_oc) / (4.0 * r_e) if r_e > 0.0 else 0.0
+    return {
+        "device_delta_t_k": delta_t_device,
+        "device_delta_t_retention": delta_t_retention,
+        "device_v_oc_v": v_oc,
+        "device_abs_v_oc_v": abs(v_oc),
+        "device_p_max_w": p_max,
+        "device_p_area_w_m2": p_max / area_m2,
+        "device_p_volume_w_m3": p_max / (area_m2 * length_m),
+        "device_q_hot_w_m2": q_hot_w_m2,
+        "device_q_hot_w": q_hot_w_m2 * area_m2,
+        "device_t_hot_k": t_hot_device,
+        "device_t_cold_k": t_cold_device,
+        "device_t_avg_k": 0.5 * (t_hot_device + t_cold_device),
+        "device_area_m2": area_m2,
+        "device_length_m": length_m,
+    }
+
+
+def format_output_row(
+    row: dict[str, str],
+    pred: dict[str, float],
+    device: dict[str, float],
+    score_target: str,
+    score: float,
+) -> dict[str, object]:
     output: dict[str, object] = {}
     for field in SUMMARY_FIELDS:
         output[field] = row.get(field, "")
@@ -177,12 +253,30 @@ def format_output_row(row: dict[str, str], pred: dict[str, float], score_target:
     output["score"] = score
     for target in TARGETS:
         output[f"pred_{target}"] = pred[target]
+    for target, value in device.items():
+        output[f"pred_{target}"] = value
     return output
 
 
 def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = SUMMARY_FIELDS + ["score_target", "score"] + [f"pred_{target}" for target in TARGETS]
+    device_fields = [
+        "device_area_m2",
+        "device_length_m",
+        "device_t_hot_k",
+        "device_t_cold_k",
+        "device_t_avg_k",
+        "device_delta_t_k",
+        "device_delta_t_retention",
+        "device_q_hot_w_m2",
+        "device_q_hot_w",
+        "device_v_oc_v",
+        "device_abs_v_oc_v",
+        "device_p_max_w",
+        "device_p_area_w_m2",
+        "device_p_volume_w_m3",
+    ]
+    fieldnames = SUMMARY_FIELDS + ["score_target", "score"] + [f"pred_{target}" for target in TARGETS + device_fields]
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
@@ -197,6 +291,13 @@ def write_summary(path: Path, args: argparse.Namespace, counts: dict[str, int], 
         f.write(f"score_target: {args.score_target}\n")
         f.write(f"direction: {args.direction}\n")
         f.write(f"top_k: {args.top_k}\n")
+        f.write(f"boundary_type: {args.boundary_type}\n")
+        f.write(f"t_hot_k: {args.t_hot_k}\n")
+        f.write(f"t_cold_k: {args.t_cold_k}\n")
+        f.write(f"h_c_w_m2k: {args.h_c_w_m2k}\n")
+        f.write(f"q_hot_w_m2: {args.q_hot_w_m2}\n")
+        f.write(f"area_m2: {args.area_m2}\n")
+        f.write(f"length_m: {args.length_m}\n")
         f.write(f"rows_read: {counts['read']}\n")
         f.write(f"rows_after_design_filters: {counts['design_filtered']}\n")
         f.write(f"rows_after_prediction_filters: {counts['prediction_filtered']}\n")
@@ -214,7 +315,7 @@ def main() -> None:
     parser.add_argument("--candidates", default=DEFAULT_CANDIDATES)
     parser.add_argument("--output", default=DEFAULT_OUTPUT)
     parser.add_argument("--summary", default=DEFAULT_SUMMARY)
-    parser.add_argument("--score-target", choices=TARGETS, default="p_area_coeff_fem_w_m2_k2")
+    parser.add_argument("--score-target", choices=TARGETS + DEVICE_TARGETS, default="p_area_coeff_fem_w_m2_k2")
     parser.add_argument("--direction", choices=["max", "min"], default="max")
     parser.add_argument("--top-k", type=int, default=200)
     parser.add_argument("--chunk-size", type=int, default=20000)
@@ -238,12 +339,27 @@ def main() -> None:
     parser.add_argument("--min-p-max", type=float, default=None)
     parser.add_argument("--min-p-area", type=float, default=None)
     parser.add_argument("--alpha-sign", choices=["any", "positive", "negative"], default="any")
+    parser.add_argument(
+        "--boundary-type",
+        choices=["fixed_hot_surface_cold_convection", "fixed_q_cold_convection"],
+        default="fixed_hot_surface_cold_convection",
+    )
+    parser.add_argument("--t-hot-k", type=float, default=393.15)
+    parser.add_argument("--t-cold-k", type=float, default=293.15)
+    parser.add_argument("--h-c-w-m2k", type=float, default=10.0)
+    parser.add_argument("--q-hot-w-m2", type=float, default=None)
+    parser.add_argument("--area-m2", type=float, default=None)
+    parser.add_argument("--length-m", type=float, default=None)
     args = parser.parse_args()
 
     if args.top_k <= 0:
         raise SystemExit("--top-k must be positive")
     if args.chunk_size <= 0:
         raise SystemExit("--chunk-size must be positive")
+    if args.h_c_w_m2k <= 0.0:
+        raise SystemExit("--h-c-w-m2k must be positive")
+    if args.boundary_type == "fixed_q_cold_convection" and args.q_hot_w_m2 is None:
+        raise SystemExit("--q-hot-w-m2 is required when --boundary-type fixed_q_cold_convection")
 
     model_path = Path(args.model)
     candidates_path = Path(args.candidates)
@@ -281,9 +397,10 @@ def main() -> None:
             if not pass_prediction_filters(pred, args):
                 continue
             counts["prediction_filtered"] += 1
-            score = pred[args.score_target]
+            device = device_metrics(row, pred, args)
+            score = pred[args.score_target] if args.score_target in TARGETS else device[args.score_target]
             rank_key = score if args.direction == "max" else -score
-            output_row = format_output_row(row, pred, args.score_target, score)
+            output_row = format_output_row(row, pred, device, args.score_target, score)
             item = (rank_key, seq, output_row)
             seq += 1
             if len(heap) < args.top_k:
