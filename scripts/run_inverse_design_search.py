@@ -126,6 +126,26 @@ def pass_row_filters(row: dict[str, str], args: argparse.Namespace) -> bool:
         return False
     if args.path_type and row.get("path_type") != args.path_type:
         return False
+    exact_filters = {
+        "t_ring_m": args.t_ring_m,
+        "ratio_hole": args.ratio_hole,
+        "h_uc_m": args.h_uc_m,
+        "n_layer": args.n_layer,
+        "size1_m": args.size1_m,
+        "num_columns": args.num_columns,
+        "connection_offset_units": args.connection_offset_units,
+        "t_coating_m": args.t_coating_m,
+    }
+    for field, expected in exact_filters.items():
+        if expected is None:
+            continue
+        try:
+            actual = finite_float(row.get(field, ""), field)
+        except (TypeError, ValueError):
+            return False
+        tolerance = max(1e-12, abs(expected) * 1e-9)
+        if abs(actual - expected) > tolerance:
+            return False
     return True
 
 
@@ -203,6 +223,14 @@ def main() -> None:
     parser.add_argument("--carrier", choices=["", "p", "n"], default="")
     parser.add_argument("--column-type", default="")
     parser.add_argument("--path-type", default="")
+    parser.add_argument("--t-ring-m", type=float, default=None)
+    parser.add_argument("--ratio-hole", type=float, default=None)
+    parser.add_argument("--h-uc-m", type=float, default=None)
+    parser.add_argument("--n-layer", type=float, default=None)
+    parser.add_argument("--size1-m", type=float, default=None)
+    parser.add_argument("--num-columns", type=float, default=None)
+    parser.add_argument("--connection-offset-units", type=float, default=None)
+    parser.add_argument("--t-coating-m", type=float, default=None)
     parser.add_argument("--min-kappa", type=float, default=None)
     parser.add_argument("--max-kappa", type=float, default=None)
     parser.add_argument("--min-r-e", type=float, default=None)
