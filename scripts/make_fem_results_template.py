@@ -14,6 +14,7 @@ OUTPUT_FIELDS = [
     "selection_priority",
     "selection_reason",
     "material_name",
+    "carrier_type",
     "t_ring_m",
     "ratio_hole",
     "h_uc_m",
