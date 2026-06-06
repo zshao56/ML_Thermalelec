@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import math
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -22,6 +23,31 @@ TARGETS = [
 PREDICTED_COLUMNS = {
     target: f"pred_{target}" for target in TARGETS
 }
+
+REQUIRED_FEM_DESIGN_FIELDS = [
+    "r_out_m",
+    "ratio_hole",
+    "r_in_m",
+    "t_ring_m",
+    "h_total_m",
+    "h_uc_m",
+    "n_layer",
+    "h_col_m",
+    "column_type",
+    "size1_m",
+    "num_columns",
+    "path_type",
+    "connection_offset_units",
+    "connection_offset_fraction",
+    "connection_twist_rad",
+    "connection_chord_m",
+    "l_path_m",
+    "placement_mode",
+    "placement_json",
+    "material_name",
+    "carrier_type",
+    "t_coating_m",
+]
 
 
 def read_top_candidates(path: Path, top_k: int) -> list[dict[str, str]]:
@@ -54,6 +80,37 @@ def read_intrinsic_rows(path: Path, case_ids: set[str]) -> dict[str, dict[str, s
     if missing:
         raise SystemExit(f"Could not find {len(missing)} top case_ids in intrinsic dataset; first missing: {missing[:10]}")
     return found
+
+
+def read_design_rows(db_path: Path, case_ids: set[str]) -> dict[str, dict[str, str]]:
+    if not db_path.exists():
+        raise SystemExit(f"Design database does not exist: {db_path}")
+    case_id_list = sorted(case_ids, key=lambda value: int(value))
+    placeholders = ",".join(["?"] * len(case_id_list))
+    query = f"SELECT * FROM unit_cell_designs WHERE case_id IN ({placeholders})"
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(query, case_id_list).fetchall()
+    found = {str(row["case_id"]): {key: str(row[key]) if row[key] is not None else "" for key in row.keys()} for row in rows}
+    missing = sorted(case_ids - set(found))
+    if missing:
+        raise SystemExit(f"Could not find {len(missing)} top case_ids in design database; first missing: {missing[:10]}")
+    return found
+
+
+def merge_design_and_intrinsic_rows(
+    design_by_case: dict[str, dict[str, str]],
+    intrinsic_by_case: dict[str, dict[str, str]],
+) -> dict[str, dict[str, str]]:
+    merged: dict[str, dict[str, str]] = {}
+    for case_id, design_row in design_by_case.items():
+        row = dict(design_row)
+        row.update(intrinsic_by_case[case_id])
+        missing = [field for field in REQUIRED_FEM_DESIGN_FIELDS if row.get(field, "") == ""]
+        if missing:
+            raise SystemExit(f"Case {case_id} is missing required FEM design fields after merge: {missing}")
+        merged[case_id] = row
+    return merged
 
 
 def write_sampling_csv(
@@ -191,6 +248,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Confirm inverse-design top candidates with voxel FEM.")
     parser.add_argument("--top-candidates", default="results/inverse_design/top_candidates.csv")
     parser.add_argument("--intrinsic-dataset", default="results/intrinsic_network_dataset.csv")
+    parser.add_argument("--db-path", default="data/unit_cell_design_space.sqlite")
     parser.add_argument("--out-dir", default="results/inverse_design/fem_check_top50")
     parser.add_argument("--top-k", type=int, default=50)
     parser.add_argument("--workers", type=int, default=25)
@@ -217,8 +275,11 @@ def main() -> None:
     top_rows = read_top_candidates(Path(args.top_candidates), args.top_k)
     for index, row in enumerate(top_rows, start=1):
         row["inverse_rank"] = str(index)
-    intrinsic_by_case = read_intrinsic_rows(Path(args.intrinsic_dataset), {row["case_id"] for row in top_rows})
-    write_sampling_csv(sampling_path, top_rows, intrinsic_by_case)
+    case_ids = {row["case_id"] for row in top_rows}
+    intrinsic_by_case = read_intrinsic_rows(Path(args.intrinsic_dataset), case_ids)
+    design_by_case = read_design_rows(Path(args.db_path), case_ids)
+    merged_by_case = merge_design_and_intrinsic_rows(design_by_case, intrinsic_by_case)
+    write_sampling_csv(sampling_path, top_rows, merged_by_case)
     print(f"Top candidates: {len(top_rows)}")
     print(f"Sampling CSV: {sampling_path}")
 
