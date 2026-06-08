@@ -1,0 +1,4 @@
+enabled,run_name,model_type,device,objective,material,carrier,boundary_type,t_hot_k,t_cold_k,h_c_w_m2k,q_hot_w_m2,area_m2,length_m,top_k,fem_check,recommendations,workers,voxel_size_m,progress_every,stl_top_k,ring_segments
+1,torch_sb2te3_p_pipe_static_device,torch,cuda,max_device_p_area,Sb2Te3,p,fixed_hot_surface_cold_convection,393.15,293.15,10,,,,300,50,20,25,1.0e-4,25,5,128
+1,torch_sb2te3_p_pipe_active_device,torch,cuda,max_device_p_area,Sb2Te3,p,fixed_hot_surface_cold_convection,433.15,313.15,100,,,,300,50,20,25,1.0e-4,25,5,128
+1,torch_sb2te3_p_industrial_device,torch,cuda,max_device_p_area,Sb2Te3,p,fixed_hot_surface_cold_convection,493.15,323.15,15,,,,300,50,20,25,1.0e-4,25,5,128
