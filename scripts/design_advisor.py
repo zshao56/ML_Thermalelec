@@ -22,6 +22,9 @@ OBJECTIVES = {
     "min_r_e": ("r_e_fem_ohm", "min"),
 }
 
+DEFAULT_SKLEARN_MODEL = "results/fem_surrogate_80000_voxel100um_sklearn/fem_surrogate_sklearn.joblib"
+DEFAULT_TORCH_MODEL = "results/fem_surrogate_80000_voxel100um_torch/fem_surrogate_torch.pt"
+
 FILTER_ARGS = [
     "material",
     "carrier",
@@ -101,6 +104,8 @@ def write_advisor_summary(
     conditions = {name: getattr(args, name) for name in FILTER_ARGS if getattr(args, name) not in (None, "", "any")}
     payload = {
         "objective": args.objective,
+        "model": args.model,
+        "model_type": args.model_type,
         "score_target": score_target,
         "direction": direction,
         "conditions": conditions,
@@ -121,7 +126,9 @@ def write_advisor_summary(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run condition-based inverse design with optional FEM confirmation.")
     parser.add_argument("--objective", choices=sorted(OBJECTIVES), default="max_device_p_area")
-    parser.add_argument("--model", default="results/fem_surrogate_80000_voxel100um_sklearn/fem_surrogate_sklearn.joblib")
+    parser.add_argument("--model", default="")
+    parser.add_argument("--model-type", choices=["auto", "sklearn", "torch"], default="auto")
+    parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     parser.add_argument("--candidates", default="results/intrinsic_network_dataset.csv")
     parser.add_argument("--db-path", default="data/unit_cell_design_space.sqlite")
     parser.add_argument("--out-root", default="results/design_advisor")
@@ -180,6 +187,9 @@ def main() -> None:
     if args.boundary_type == "fixed_q_cold_convection" and args.q_hot_w_m2 is None:
         raise SystemExit("--q-hot-w-m2 is required when --boundary-type fixed_q_cold_convection")
 
+    if not args.model:
+        args.model = DEFAULT_TORCH_MODEL if args.model_type == "torch" else DEFAULT_SKLEARN_MODEL
+
     score_target, direction = OBJECTIVES[args.objective]
     run_name = slug(args.run_name) if args.run_name else default_run_name(args)
     out_dir = Path(args.out_root) / run_name
@@ -193,6 +203,10 @@ def main() -> None:
         str(script_dir / "run_inverse_design_search.py"),
         "--model",
         args.model,
+        "--model-type",
+        args.model_type,
+        "--device",
+        args.device,
         "--candidates",
         args.candidates,
         "--output",

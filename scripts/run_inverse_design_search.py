@@ -8,12 +8,13 @@ import csv
 import heapq
 import math
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Literal
 
 import numpy as np
 
 
 DEFAULT_MODEL = "results/fem_surrogate_80000_voxel100um_sklearn/fem_surrogate_sklearn.joblib"
+DEFAULT_TORCH_MODEL = "results/fem_surrogate_80000_voxel100um_torch/fem_surrogate_torch.pt"
 DEFAULT_CANDIDATES = "results/intrinsic_network_dataset.csv"
 DEFAULT_OUTPUT = "results/inverse_design/top_candidates.csv"
 DEFAULT_SUMMARY = "results/inverse_design/summary.txt"
@@ -81,6 +82,41 @@ def import_joblib():
     return joblib
 
 
+def import_torch():
+    try:
+        import torch
+        from torch import nn
+    except Exception as exc:
+        raise SystemExit(
+            "PyTorch is required to load a torch surrogate. Install on the Linux server with:\n"
+            "  conda install -c pytorch -c nvidia pytorch pytorch-cuda=12.1\n"
+            f"Import error: {exc}"
+        )
+    return torch, nn
+
+
+def resolve_model_type(path: Path, requested: str) -> Literal["sklearn", "torch"]:
+    if requested != "auto":
+        return requested  # type: ignore[return-value]
+    if path.suffix in {".pt", ".pth"}:
+        return "torch"
+    return "sklearn"
+
+
+def make_torch_model(nn, input_dim: int, output_dim: int, hidden: list[int], dropout: float):
+    layers = []
+    previous = input_dim
+    for width in hidden:
+        layers.append(nn.Linear(previous, width))
+        layers.append(nn.SiLU())
+        layers.append(nn.LayerNorm(width))
+        if dropout > 0.0:
+            layers.append(nn.Dropout(dropout))
+        previous = width
+    layers.append(nn.Linear(previous, output_dim))
+    return nn.Sequential(*layers)
+
+
 def finite_float(value: str, field: str) -> float:
     parsed = float(value)
     if not math.isfinite(parsed):
@@ -110,8 +146,100 @@ def feature_dict(
     return item
 
 
+def torch_feature_matrix(
+    rows: list[dict[str, str]],
+    numeric_features: list[str],
+    categorical_features: list[str],
+    categorical_vocab: dict[str, list[str]],
+) -> np.ndarray:
+    values: list[list[float]] = []
+    for row in rows:
+        item = []
+        for field in numeric_features:
+            aliases = NUMERIC_ALIASES.get(field, [field])
+            item.append(finite_float(first_present(row, aliases, field), field))
+        for field in categorical_features:
+            value = first_present(row, [field], field)
+            choices = categorical_vocab[field]
+            item.extend(1.0 if value == choice else 0.0 for choice in choices)
+        values.append(item)
+    return np.asarray(values, dtype=np.float32)
+
+
 def inverse_target(values: np.ndarray, target: str, log_targets: set[str]) -> np.ndarray:
     return np.exp(values) if target in log_targets else values
+
+
+def load_sklearn_predictor(model_path: Path):
+    joblib = import_joblib()
+    bundle = joblib.load(model_path)
+    numeric_features = list(bundle["numeric_features"])
+    categorical_features = list(bundle["categorical_features"])
+    models = bundle["models"]
+    log_targets = set(bundle.get("log_targets", sorted(LOG_TARGETS)))
+
+    def predict(rows: list[dict[str, str]]) -> dict[str, np.ndarray]:
+        features = [feature_dict(row, numeric_features, categorical_features) for row in rows]
+        predictions_by_target: dict[str, np.ndarray] = {}
+        for target in TARGETS:
+            raw = models[target].predict(features)
+            predictions_by_target[target] = inverse_target(np.asarray(raw, dtype=float), target, log_targets)
+        return predictions_by_target
+
+    return predict, log_targets
+
+
+def load_torch_predictor(model_path: Path, device_arg: str, batch_size: int):
+    torch, nn = import_torch()
+    if device_arg == "auto":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    elif device_arg == "cuda" and not torch.cuda.is_available():
+        raise SystemExit("CUDA was requested but torch.cuda.is_available() is false")
+    else:
+        device = device_arg
+
+    try:
+        bundle = torch.load(model_path, map_location=device, weights_only=False)
+    except TypeError:
+        bundle = torch.load(model_path, map_location=device)
+    targets = list(bundle["targets"])
+    if targets != TARGETS:
+        raise SystemExit(f"Torch model targets do not match this script. Model targets: {targets}")
+    numeric_features = list(bundle["numeric_features"])
+    categorical_features = list(bundle["categorical_features"])
+    categorical_vocab = {field: list(values) for field, values in bundle["categorical_vocab"].items()}
+    log_targets = set(bundle.get("log_targets", sorted(LOG_TARGETS)))
+    x_mean = np.asarray(bundle["x_mean"], dtype=np.float32)
+    x_scale = np.asarray(bundle["x_scale"], dtype=np.float32)
+    y_mean = np.asarray(bundle["y_mean"], dtype=np.float32)
+    y_scale = np.asarray(bundle["y_scale"], dtype=np.float32)
+
+    model = make_torch_model(
+        nn,
+        int(bundle["input_dim"]),
+        int(bundle["output_dim"]),
+        [int(value) for value in bundle["hidden"]],
+        float(bundle.get("dropout", 0.0)),
+    ).to(device)
+    model.load_state_dict(bundle["state_dict"])
+    model.eval()
+
+    def predict(rows: list[dict[str, str]]) -> dict[str, np.ndarray]:
+        x_raw = torch_feature_matrix(rows, numeric_features, categorical_features, categorical_vocab)
+        x = (x_raw - x_mean) / x_scale
+        chunks = []
+        with torch.no_grad():
+            for start in range(0, len(x), batch_size):
+                batch = torch.as_tensor(x[start : start + batch_size], dtype=torch.float32, device=device)
+                chunks.append(model(batch).cpu().numpy())
+        transformed = np.vstack(chunks) * y_scale + y_mean
+        predictions_by_target: dict[str, np.ndarray] = {}
+        for index, target in enumerate(TARGETS):
+            predictions_by_target[target] = inverse_target(transformed[:, index].astype(float), target, log_targets)
+        return predictions_by_target
+
+    print(f"Torch device: {device}")
+    return predict, log_targets
 
 
 def read_chunks(path: Path, chunk_size: int) -> Iterable[tuple[list[str], list[dict[str, str]]]]:
@@ -287,6 +415,7 @@ def write_summary(path: Path, args: argparse.Namespace, counts: dict[str, int], 
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         f.write(f"model: {args.model}\n")
+        f.write(f"model_type: {args.model_type}\n")
         f.write(f"candidates: {args.candidates}\n")
         f.write(f"score_target: {args.score_target}\n")
         f.write(f"direction: {args.direction}\n")
@@ -312,6 +441,8 @@ def write_summary(path: Path, args: argparse.Namespace, counts: dict[str, int], 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Rank inverse-design candidates with a trained FEM surrogate.")
     parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--model-type", choices=["auto", "sklearn", "torch"], default="auto")
+    parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     parser.add_argument("--candidates", default=DEFAULT_CANDIDATES)
     parser.add_argument("--output", default=DEFAULT_OUTPUT)
     parser.add_argument("--summary", default=DEFAULT_SUMMARY)
@@ -319,6 +450,7 @@ def main() -> None:
     parser.add_argument("--direction", choices=["max", "min"], default="max")
     parser.add_argument("--top-k", type=int, default=200)
     parser.add_argument("--chunk-size", type=int, default=20000)
+    parser.add_argument("--predict-batch-size", type=int, default=65536)
     parser.add_argument("--progress-every", type=int, default=50000)
     parser.add_argument("--material", default="")
     parser.add_argument("--carrier", choices=["", "p", "n"], default="")
@@ -356,6 +488,8 @@ def main() -> None:
         raise SystemExit("--top-k must be positive")
     if args.chunk_size <= 0:
         raise SystemExit("--chunk-size must be positive")
+    if args.predict_batch_size <= 0:
+        raise SystemExit("--predict-batch-size must be positive")
     if args.h_c_w_m2k <= 0.0:
         raise SystemExit("--h-c-w-m2k must be positive")
     if args.boundary_type == "fixed_q_cold_convection" and args.q_hot_w_m2 is None:
@@ -368,12 +502,14 @@ def main() -> None:
     if not candidates_path.exists():
         raise SystemExit(f"Candidate CSV does not exist: {candidates_path}")
 
-    joblib = import_joblib()
-    bundle = joblib.load(model_path)
-    numeric_features = list(bundle["numeric_features"])
-    categorical_features = list(bundle["categorical_features"])
-    models = bundle["models"]
-    log_targets = set(bundle.get("log_targets", sorted(LOG_TARGETS)))
+    model_type = resolve_model_type(model_path, args.model_type)
+    args.model_type = model_type
+    if model_type == "sklearn":
+        predictor, _log_targets = load_sklearn_predictor(model_path)
+    elif model_type == "torch":
+        predictor, _log_targets = load_torch_predictor(model_path, args.device, args.predict_batch_size)
+    else:
+        raise SystemExit(f"Unsupported model type: {model_type}")
 
     heap: list[tuple[float, int, dict[str, object]]] = []
     seq = 0
@@ -386,11 +522,7 @@ def main() -> None:
         if not filtered_rows:
             continue
 
-        features = [feature_dict(row, numeric_features, categorical_features) for row in filtered_rows]
-        predictions_by_target: dict[str, np.ndarray] = {}
-        for target in TARGETS:
-            raw = models[target].predict(features)
-            predictions_by_target[target] = inverse_target(np.asarray(raw, dtype=float), target, log_targets)
+        predictions_by_target = predictor(filtered_rows)
 
         for index, row in enumerate(filtered_rows):
             pred = {target: float(predictions_by_target[target][index]) for target in TARGETS}
