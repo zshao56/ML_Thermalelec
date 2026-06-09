@@ -254,7 +254,12 @@ def position_for_index_m(index: int, placement: dict[str, object], z: float, n_c
     raise ValueError(f"Unknown placement mode: {mode}")
 
 
-def path_points_m(path_type: str, p0: tuple[float, float, float], p1: tuple[float, float, float]) -> np.ndarray:
+def path_points_m(
+    path_type: str,
+    p0: tuple[float, float, float],
+    p1: tuple[float, float, float],
+    path_params: dict[str, object] | None = None,
+) -> np.ndarray:
     samples = {
         "straight": 2,
         "single_kink": 9,
@@ -290,7 +295,26 @@ def path_points_m(path_type: str, p0: tuple[float, float, float], p1: tuple[floa
         elif path_type == "sine_wave":
             offset = lateral * (0.12e-3 * math.sin(2.0 * math.pi * t))
         elif path_type == "helix_winding":
-            offset = radial * (0.12e-3 * math.sin(2.0 * math.pi * t))
+            params = path_params or {}
+            radius_ratio = float(params.get("radius_ratio", 0.15))
+            turns = float(params.get("turns", 1.0))
+            chord_length = float(np.linalg.norm(chord))
+            axis_norm = chord_length
+            if axis_norm < 1e-18:
+                offset = 0.0 * radial
+            else:
+                e_axis = chord / axis_norm
+                u = np.cross(e_axis, np.array([0.0, 0.0, 1.0]))
+                if np.linalg.norm(u) < 1e-18:
+                    u = np.cross(e_axis, np.array([1.0, 0.0, 0.0]))
+                u = u / np.linalg.norm(u)
+                v = np.cross(e_axis, u)
+                v = v / np.linalg.norm(v)
+                envelope = math.sin(math.pi * t)
+                phase = 2.0 * math.pi * turns * t
+                offset = chord_length * radius_ratio * envelope * (
+                    math.cos(phase) * u + math.sin(phase) * v
+                )
         elif path_type == "bezier_curve":
             offset = radial * (0.16e-3 * math.sin(math.pi * t)) + lateral * (0.08e-3 * math.sin(2.0 * math.pi * t))
         else:
@@ -327,6 +351,7 @@ def build_voxel_mask(design: dict[str, object], voxel_size_m: float) -> tuple[np
     size1_m = parse_float(design, "size1_m")
     column_type = str(design["column_type"])
     path_type = str(design["path_type"])
+    path_params = json.loads(str(design.get("path_params_json", "{}")))
     offset_units = parse_int(design, "connection_offset_units")
     placement = design["placement"]
 
@@ -354,7 +379,7 @@ def build_voxel_mask(design: dict[str, object], voxel_size_m: float) -> tuple[np
             top_index = column_index + layer_shift + offset_units
             p0 = position_for_index_m(bottom_index, placement, z_bottom, n_columns)
             p1 = position_for_index_m(top_index, placement, z_top, n_columns)
-            add_tube_mask(mask, X, Y, Z, path_points_m(path_type, p0, p1), equivalent_radius)
+            add_tube_mask(mask, X, Y, Z, path_points_m(path_type, p0, p1, path_params), equivalent_radius)
 
     metadata = {
         "voxel_size_m": voxel_size_m,

@@ -66,6 +66,7 @@ def design_payload(row: dict[str, str]) -> dict[str, object]:
         "connection_twist_rad",
         "connection_chord_m",
         "l_path_m",
+        "path_params_json",
         "placement_mode",
         "placement_json",
         "material_name",

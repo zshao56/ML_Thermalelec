@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Run a stricter FEM-data pipeline for production surrogate training.
 
-The default rigorous profile excludes path definitions whose display geometry
-and voxel solver representation are not yet guaranteed to match exactly.
+The default rigorous profile keeps all currently defined path types. Specific
+path types can still be excluded explicitly for ablation or debugging.
 """
 
 from __future__ import annotations
@@ -107,12 +107,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run a rigorous no-geometry-ambiguity FEM training pipeline.")
     parser.add_argument("--intrinsic-dataset", default="results/intrinsic_network_dataset.csv")
     parser.add_argument("--db-path", default="data/unit_cell_design_space.sqlite")
-    parser.add_argument("--profile-name", default="rigorous_no_helix")
+    parser.add_argument("--profile-name", default="rigorous_precise_helix")
     parser.add_argument("--fem-count", type=int, default=80000)
     parser.add_argument("--workers", type=int, default=os.cpu_count() or 8)
     parser.add_argument("--voxel-size-m", type=float, default=1.0e-4)
     parser.add_argument("--progress-every", type=int, default=100)
-    parser.add_argument("--exclude-path-types", default="helix_winding")
+    parser.add_argument("--exclude-path-types", default="")
     parser.add_argument("--fill-strategy", choices=["performance", "stratified", "hybrid"], default="hybrid")
     parser.add_argument("--performance-fill-fraction", type=float, default=0.5)
     parser.add_argument("--stratified-bins", type=int, default=20)

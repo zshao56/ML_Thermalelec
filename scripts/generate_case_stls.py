@@ -138,7 +138,13 @@ def lateral_direction(p0: Vec3, p1: Vec3) -> Vec3:
     return unit((-chord[1], chord[0], 0.0), radial_direction(p0, p1))
 
 
-def sample_path(path_type: str, p0: Vec3, p1: Vec3, amplitude_scale: float = 1.0) -> list[Vec3]:
+def sample_path(
+    path_type: str,
+    p0: Vec3,
+    p1: Vec3,
+    amplitude_scale: float = 1.0,
+    path_params: dict[str, object] | None = None,
+) -> list[Vec3]:
     n = DEFAULT_PATH_SAMPLES[path_type]
     if path_type == "straight":
         return [p0, p1]
@@ -179,15 +185,20 @@ def sample_path(path_type: str, p0: Vec3, p1: Vec3, amplitude_scale: float = 1.0
 
     if path_type == "helix_winding":
         axis = sub(p1, p0)
+        axis_length = norm(axis)
         e_axis = unit(axis)
         u = unit(cross(e_axis, (0.0, 0.0, 1.0)), cross(e_axis, (1.0, 0.0, 0.0)))
         v = unit(cross(e_axis, u))
+        params = path_params or {}
+        radius_ratio = float(params.get("radius_ratio", 0.15))
+        turns = float(params.get("turns", 1.0))
+        helix_radius = axis_length * radius_ratio * amplitude_scale
         for i in range(n):
             t = i / (n - 1)
             base = lerp(p0, p1, t)
             envelope = math.sin(math.pi * t)
-            phase = 2.0 * math.pi * 1.25 * t
-            offset = mul(add(mul(u, math.cos(phase)), mul(v, math.sin(phase))), 0.20 * amplitude_scale * envelope)
+            phase = 2.0 * math.pi * turns * t
+            offset = mul(add(mul(u, math.cos(phase)), mul(v, math.sin(phase))), helix_radius * envelope)
             points.append(add(base, offset))
         return points
 
@@ -301,6 +312,9 @@ def make_case_mesh(
     ring_segments: int = RING_SEGMENTS,
     column_scale: float = 1.0,
     path_amplitude_scale: float = 1.0,
+    layer_start: int | None = None,
+    layer_count: int | None = None,
+    include_rings: bool = True,
 ) -> tuple[list[Triangle], dict[str, object]]:
     case_id = row["case_id"]
     r_out = float(row["r_out_m"]) * 1000.0
@@ -314,14 +328,26 @@ def make_case_mesh(
     visual_size1 = size1 * column_scale
     column_type = row["column_type"]
     path_type = row["path_type"]
+    path_params = json.loads(row.get("path_params_json") or "{}")
     placement = json.loads(row["placement_json"])
 
-    triangles: list[Triangle] = []
-    for layer_index in range(n_layer + 1):
-        z0 = layer_index * h_uc
-        triangles.extend(ring_mesh(z0, z0 + t_ring, r_out, r_in, ring_segments))
+    first_layer = 0 if layer_start is None else layer_start
+    selected_layer_count = n_layer if layer_count is None else layer_count
+    last_layer = first_layer + selected_layer_count
+    if first_layer < 0 or first_layer >= n_layer:
+        raise ValueError(f"layer_start must be in [0, {n_layer - 1}], got {first_layer}")
+    if selected_layer_count < 1:
+        raise ValueError("layer_count must be >= 1")
+    if last_layer > n_layer:
+        raise ValueError(f"layer_start + layer_count must be <= {n_layer}, got {last_layer}")
 
-    for layer_index in range(n_layer):
+    triangles: list[Triangle] = []
+    if include_rings:
+        for layer_index in range(first_layer, last_layer + 1):
+            z0 = layer_index * h_uc
+            triangles.extend(ring_mesh(z0, z0 + t_ring, r_out, r_in, ring_segments))
+
+    for layer_index in range(first_layer, last_layer):
         z_bottom = layer_index * h_uc + t_ring
         z_top = (layer_index + 1) * h_uc
         layer_shift = layer_index * offset_units
@@ -330,7 +356,13 @@ def make_case_mesh(
             top_index = column_index + layer_shift + offset_units
             p0 = position_for_index(bottom_index, placement, z_bottom, n_columns)
             p1 = position_for_index(top_index, placement, z_top, n_columns)
-            triangles.extend(tube_mesh(sample_path(path_type, p0, p1, path_amplitude_scale), column_type, visual_size1))
+            triangles.extend(
+                tube_mesh(
+                    sample_path(path_type, p0, p1, path_amplitude_scale, path_params),
+                    column_type,
+                    visual_size1,
+                )
+            )
 
     metadata = {
         "case_id": case_id,
@@ -342,6 +374,11 @@ def make_case_mesh(
         "n_layer": n_layer,
         "h_total_nominal_mm": n_layer * h_uc,
         "top_ring_extends_to_mm": n_layer * h_uc + t_ring,
+        "layer_start": first_layer,
+        "layer_count": selected_layer_count,
+        "exported_layer_range": [first_layer, last_layer - 1],
+        "exported_ring_range": [first_layer, last_layer],
+        "include_rings": include_rings,
         "column_type": column_type,
         "size1_mm": size1,
         "visual_size1_mm": visual_size1,
@@ -349,6 +386,7 @@ def make_case_mesh(
         "path_amplitude_scale": path_amplitude_scale,
         "num_columns": n_columns,
         "path_type": path_type,
+        "path_params": path_params,
         "connection_offset_units": offset_units,
         "placement_mode": placement["mode"],
         "ring_segments": ring_segments,
@@ -373,6 +411,23 @@ def main() -> None:
         default=1.0,
         help="Scale decorative path curvature/helix amplitude. 1.0 preserves the default preview shape.",
     )
+    parser.add_argument(
+        "--layer-start",
+        type=int,
+        default=None,
+        help="Export only columns starting from this layer index. Default exports all layers.",
+    )
+    parser.add_argument(
+        "--layer-count",
+        type=int,
+        default=None,
+        help="Number of connection layers to export. Use --layer-start 0 --layer-count 1 for one layer.",
+    )
+    parser.add_argument(
+        "--omit-rings",
+        action="store_true",
+        help="Export only the connection columns/tubes. Useful for inspecting dense paths.",
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -396,6 +451,8 @@ def main() -> None:
         raise SystemExit("--column-scale must be positive.")
     if args.path_amplitude_scale < 0.0:
         raise SystemExit("--path-amplitude-scale must be non-negative.")
+    if args.layer_count is not None and args.layer_count < 1:
+        raise SystemExit("--layer-count must be >= 1.")
 
     for row in rows:
         case_id = row["case_id"]
@@ -403,6 +460,9 @@ def main() -> None:
             row,
             column_scale=args.column_scale,
             path_amplitude_scale=args.path_amplitude_scale,
+            layer_start=args.layer_start,
+            layer_count=args.layer_count,
+            include_rings=not args.omit_rings,
         )
         stl_path = out_dir / f"case_{case_id}.stl"
         triangles_written = write_ascii_stl(stl_path, f"case_{case_id}", triangles)
