@@ -765,11 +765,11 @@ def iter_design_rows() -> Iterable[tuple]:
                 row_invalid_reason = "solid_and_coating_volume_exceed_domain"
 
             if row_geometry_valid:
-                ep_key = (placement_mode, n_columns, connection_offset_units, h_col_m)
+                ep_key = (placement_mode, num_columns, connection_offset_units, h_col_m)
                 if ep_key not in _endpoint_cache:
                     placement_obj = json.loads(placement_json)
                     _endpoint_cache[ep_key] = _pillar_endpoints(
-                        placement_obj, n_columns, connection_offset_units, h_col_m
+                        placement_obj, num_columns, connection_offset_units, h_col_m
                     )
                 endpoints = _endpoint_cache[ep_key]
                 col_key = (path_type, ep_key, feature_radius_m)
