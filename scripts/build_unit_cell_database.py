@@ -437,7 +437,7 @@ def _pillar_endpoints(
             else:
                 th0 = 2.0 * math.pi * (i - n_inner) / n_outer + off_outer
                 p0 = (r2 * math.cos(th0), r2 * math.sin(th0), 0.0)
-            top_i = i + connection_offset_units
+            top_i = (i + connection_offset_units) % n_columns
             if top_i < n_inner:
                 th1 = 2.0 * math.pi * top_i / n_inner
                 p1 = (r1 * math.cos(th1), r1 * math.sin(th1), h_col_m)

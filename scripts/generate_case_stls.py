@@ -315,6 +315,7 @@ def make_case_mesh(
     layer_start: int | None = None,
     layer_count: int | None = None,
     include_rings: bool = True,
+    pillar_overlap_fraction: float = 0.0,
 ) -> tuple[list[Triangle], dict[str, object]]:
     case_id = row["case_id"]
     r_out = float(row["r_out_m"]) * 1000.0
@@ -340,6 +341,8 @@ def make_case_mesh(
         raise ValueError("layer_count must be >= 1")
     if last_layer > n_layer:
         raise ValueError(f"layer_start + layer_count must be <= {n_layer}, got {last_layer}")
+    if pillar_overlap_fraction < 0.0:
+        raise ValueError("pillar_overlap_fraction must be non-negative")
 
     triangles: list[Triangle] = []
     if include_rings:
@@ -348,7 +351,7 @@ def make_case_mesh(
             triangles.extend(ring_mesh(z0, z0 + t_ring, r_out, r_in, ring_segments))
 
     for layer_index in range(first_layer, last_layer):
-        pillar_extend = t_ring * 0.3  # extend pillar ends into rings for clean connection
+        pillar_extend = t_ring * pillar_overlap_fraction
         z_bottom = layer_index * h_uc + t_ring
         z_top = (layer_index + 1) * h_uc
         z_bottom_ext = z_bottom - pillar_extend
@@ -377,6 +380,8 @@ def make_case_mesh(
         "exported_layer_range": [first_layer, last_layer - 1],
         "exported_ring_range": [first_layer, last_layer],
         "include_rings": include_rings,
+        "pillar_overlap_fraction": pillar_overlap_fraction,
+        "pillar_overlap_mm": pillar_extend,
         "column_type": column_type,
         "size1_mm": size1,
         "visual_size1_mm": visual_size1,
@@ -426,6 +431,15 @@ def main() -> None:
         action="store_true",
         help="Export only the connection columns/tubes. Useful for inspecting dense paths.",
     )
+    parser.add_argument(
+        "--pillar-overlap-fraction",
+        type=float,
+        default=0.0,
+        help=(
+            "Optional visual overlap into each adjacent ring, as a fraction of ring thickness. "
+            "Default 0.0 keeps pillars clipped between ring surfaces."
+        ),
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -451,6 +465,8 @@ def main() -> None:
         raise SystemExit("--path-amplitude-scale must be non-negative.")
     if args.layer_count is not None and args.layer_count < 1:
         raise SystemExit("--layer-count must be >= 1.")
+    if args.pillar_overlap_fraction < 0.0:
+        raise SystemExit("--pillar-overlap-fraction must be non-negative.")
 
     for row in rows:
         case_id = row["case_id"]
@@ -461,6 +477,7 @@ def main() -> None:
             layer_start=args.layer_start,
             layer_count=args.layer_count,
             include_rings=not args.omit_rings,
+            pillar_overlap_fraction=args.pillar_overlap_fraction,
         )
         stl_path = out_dir / f"case_{case_id}.stl"
         triangles_written = write_ascii_stl(stl_path, f"case_{case_id}", triangles)
