@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 import sqlite3
 from collections import defaultdict
 from pathlib import Path
@@ -45,6 +46,27 @@ def read_intrinsic_rows(path: Path) -> list[dict[str, str]]:
     if not rows:
         raise SystemExit(f"No valid intrinsic rows found in {path}")
     return rows
+
+
+def parse_name_set(text: str) -> set[str]:
+    return {item.strip() for item in text.split(",") if item.strip()}
+
+
+def apply_design_filters(
+    rows: list[dict[str, str]],
+    exclude_path_types: set[str],
+    max_num_columns_for_path: dict[str, int],
+) -> list[dict[str, str]]:
+    filtered = []
+    for row in rows:
+        path_type = row.get("path_type", "")
+        if path_type in exclude_path_types:
+            continue
+        max_columns = max_num_columns_for_path.get(path_type)
+        if max_columns is not None and int(float(row.get("num_columns", "0"))) > max_columns:
+            continue
+        filtered.append(row)
+    return filtered
 
 
 def add_selected(
@@ -140,12 +162,81 @@ def select_boundary_cases(rows: list[dict[str, str]], selected: dict[str, dict[s
             return
 
 
-def fill_to_target(rows: list[dict[str, str]], selected: dict[str, dict[str, str]], target_count: int) -> None:
+def diversity_sort_key(row: dict[str, str]) -> tuple[object, ...]:
+    return (
+        row["material_name"],
+        float(row["ratio_hole"]),
+        float(row["h_uc_m"]),
+        row["column_type"],
+        float(row["size1_m"]),
+        int(float(row["num_columns"])),
+        row["path_type"],
+        int(float(row["connection_offset_units"])),
+        float(row["t_coating_m"]),
+        int(float(row["case_id"])),
+    )
+
+
+def fill_by_performance(
+    rows: list[dict[str, str]],
+    selected: dict[str, dict[str, str]],
+    target_count: int,
+) -> None:
     ranked = sorted(rows, key=lambda row: parse_float(row, "p_area_coeff_w_m2_k2"), reverse=True)
     for row in ranked:
         if len(selected) >= target_count:
             return
         add_selected(selected, row, "D", "target_count_fill")
+
+
+def fill_by_stratified_performance(
+    rows: list[dict[str, str]],
+    selected: dict[str, dict[str, str]],
+    target_count: int,
+    bins: int,
+) -> None:
+    ranked = sorted(rows, key=lambda row: parse_float(row, "p_area_coeff_w_m2_k2"), reverse=True)
+    bins = max(1, min(bins, len(ranked)))
+    bucket_size = math.ceil(len(ranked) / bins)
+    buckets = [
+        sorted(ranked[index : index + bucket_size], key=diversity_sort_key)
+        for index in range(0, len(ranked), bucket_size)
+    ]
+    bucket_indices = [0] * len(buckets)
+    while len(selected) < target_count:
+        progressed = False
+        for bucket_index, bucket in enumerate(buckets):
+            while bucket_indices[bucket_index] < len(bucket):
+                row = bucket[bucket_indices[bucket_index]]
+                bucket_indices[bucket_index] += 1
+                if add_selected(selected, row, "D", "stratified_target_count_fill"):
+                    progressed = True
+                    break
+            if len(selected) >= target_count:
+                return
+        if not progressed:
+            return
+
+
+def fill_to_target(
+    rows: list[dict[str, str]],
+    selected: dict[str, dict[str, str]],
+    target_count: int,
+    strategy: str,
+    performance_fill_fraction: float,
+    stratified_bins: int,
+) -> None:
+    if strategy == "performance":
+        fill_by_performance(rows, selected, target_count)
+    elif strategy == "stratified":
+        fill_by_stratified_performance(rows, selected, target_count, stratified_bins)
+    elif strategy == "hybrid":
+        remaining = max(0, target_count - len(selected))
+        performance_target = len(selected) + round(remaining * performance_fill_fraction)
+        fill_by_performance(rows, selected, performance_target)
+        fill_by_stratified_performance(rows, selected, target_count, stratified_bins)
+    else:
+        raise SystemExit(f"Unknown fill strategy: {strategy}")
 
 
 def fetch_design_rows(db_path: Path, case_ids: list[str]) -> dict[str, dict[str, str]]:
@@ -166,6 +257,31 @@ def main() -> None:
     parser.add_argument("--top-count", type=int, default=50)
     parser.add_argument("--diversity-count", type=int, default=100)
     parser.add_argument("--boundary-count", type=int, default=50)
+    parser.add_argument(
+        "--fill-strategy",
+        choices=["performance", "stratified", "hybrid"],
+        default="performance",
+        help="How to fill rows after top/diversity/boundary selections. Default preserves legacy behavior.",
+    )
+    parser.add_argument(
+        "--performance-fill-fraction",
+        type=float,
+        default=0.5,
+        help="For --fill-strategy hybrid, fraction of remaining rows filled by high predicted performance first.",
+    )
+    parser.add_argument("--stratified-bins", type=int, default=20)
+    parser.add_argument(
+        "--exclude-path-types",
+        default="",
+        help="Comma-separated path types to exclude from FEM sampling, e.g. helix_winding.",
+    )
+    parser.add_argument(
+        "--max-columns-for-path",
+        action="append",
+        default=[],
+        metavar="PATH:MAX_COLUMNS",
+        help="Reject rows whose path type exceeds a column-count limit, e.g. helix_winding:10. Can be repeated.",
+    )
     args = parser.parse_args()
 
     intrinsic_path = Path(args.intrinsic_dataset)
@@ -175,13 +291,34 @@ def main() -> None:
         raise SystemExit(f"Intrinsic dataset does not exist: {intrinsic_path}")
     if not db_path.exists():
         raise SystemExit(f"Database does not exist: {db_path}")
+    if args.performance_fill_fraction < 0.0 or args.performance_fill_fraction > 1.0:
+        raise SystemExit("--performance-fill-fraction must be between 0 and 1")
+    if args.stratified_bins < 1:
+        raise SystemExit("--stratified-bins must be >= 1")
 
     rows = read_intrinsic_rows(intrinsic_path)
+    rows_before_filter = len(rows)
+    max_num_columns_for_path: dict[str, int] = {}
+    for item in args.max_columns_for_path:
+        if ":" not in item:
+            raise SystemExit(f"--max-columns-for-path must be PATH:MAX_COLUMNS, got: {item}")
+        path_type, max_columns_text = item.split(":", 1)
+        max_num_columns_for_path[path_type.strip()] = int(max_columns_text)
+    rows = apply_design_filters(rows, parse_name_set(args.exclude_path_types), max_num_columns_for_path)
+    if not rows:
+        raise SystemExit("No intrinsic rows remain after design filters.")
     selected: dict[str, dict[str, str]] = {}
     select_top_performance(rows, selected, args.top_count)
     select_diverse_representatives(rows, selected, args.diversity_count)
     select_boundary_cases(rows, selected, args.boundary_count)
-    fill_to_target(rows, selected, args.target_count)
+    fill_to_target(
+        rows,
+        selected,
+        args.target_count,
+        args.fill_strategy,
+        args.performance_fill_fraction,
+        args.stratified_bins,
+    )
 
     selected_items = list(selected.values())[: args.target_count]
     case_ids = [row["case_id"] for row in selected_items]
@@ -210,7 +347,8 @@ def main() -> None:
         writer.writeheader()
         writer.writerows(sample_rows)
 
-    print(f"Intrinsic rows read: {len(rows)}")
+    print(f"Intrinsic rows read: {rows_before_filter}")
+    print(f"Rows after design filters: {len(rows)}")
     print(f"FEM sampling rows: {len(sample_rows)}")
     print(f"Output: {output_path}")
 

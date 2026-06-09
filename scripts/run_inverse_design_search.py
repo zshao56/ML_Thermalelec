@@ -124,6 +124,23 @@ def finite_float(value: str, field: str) -> float:
     return parsed
 
 
+def parse_name_set(text: str) -> set[str]:
+    return {item.strip() for item in text.split(",") if item.strip()}
+
+
+def parse_path_column_limits(items: list[str]) -> dict[str, int]:
+    limits: dict[str, int] = {}
+    for item in items:
+        if ":" not in item:
+            raise SystemExit(f"--max-columns-for-path must be PATH:MAX_COLUMNS, got: {item}")
+        path_type, max_columns_text = item.split(":", 1)
+        path_type = path_type.strip()
+        if not path_type:
+            raise SystemExit(f"--max-columns-for-path has an empty path type: {item}")
+        limits[path_type] = int(max_columns_text)
+    return limits
+
+
 def first_present(row: dict[str, str], names: Iterable[str], field: str) -> str:
     for name in names:
         value = row.get(name, "")
@@ -265,6 +282,16 @@ def pass_row_filters(row: dict[str, str], args: argparse.Namespace) -> bool:
         return False
     if args.path_type and row.get("path_type") != args.path_type:
         return False
+    path_type = row.get("path_type", "")
+    if path_type in args.exclude_path_type_set:
+        return False
+    max_columns = args.max_num_columns_for_path.get(path_type)
+    if max_columns is not None:
+        try:
+            if int(float(row.get("num_columns", "0"))) > max_columns:
+                return False
+        except ValueError:
+            return False
     exact_filters = {
         "t_ring_m": args.t_ring_m,
         "ratio_hole": args.ratio_hole,
@@ -456,6 +483,18 @@ def main() -> None:
     parser.add_argument("--carrier", choices=["", "p", "n"], default="")
     parser.add_argument("--column-type", default="")
     parser.add_argument("--path-type", default="")
+    parser.add_argument(
+        "--exclude-path-types",
+        default="",
+        help="Comma-separated path types to exclude from inverse-design search, e.g. helix_winding.",
+    )
+    parser.add_argument(
+        "--max-columns-for-path",
+        action="append",
+        default=[],
+        metavar="PATH:MAX_COLUMNS",
+        help="Reject rows whose path type exceeds a column-count limit, e.g. helix_winding:10. Can be repeated.",
+    )
     parser.add_argument("--t-ring-m", type=float, default=None)
     parser.add_argument("--ratio-hole", type=float, default=None)
     parser.add_argument("--h-uc-m", type=float, default=None)
@@ -494,6 +533,8 @@ def main() -> None:
         raise SystemExit("--h-c-w-m2k must be positive")
     if args.boundary_type == "fixed_q_cold_convection" and args.q_hot_w_m2 is None:
         raise SystemExit("--q-hot-w-m2 is required when --boundary-type fixed_q_cold_convection")
+    args.exclude_path_type_set = parse_name_set(args.exclude_path_types)
+    args.max_num_columns_for_path = parse_path_column_limits(args.max_columns_for_path)
 
     model_path = Path(args.model)
     candidates_path = Path(args.candidates)

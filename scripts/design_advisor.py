@@ -30,6 +30,8 @@ FILTER_ARGS = [
     "carrier",
     "column_type",
     "path_type",
+    "exclude_path_types",
+    "max_columns_for_path",
     "t_ring_m",
     "ratio_hole",
     "h_uc_m",
@@ -71,6 +73,10 @@ def slug(text: str) -> str:
 def add_optional(command: list[str], option: str, value: object | None) -> None:
     if value is None or value == "":
         return
+    if isinstance(value, list):
+        for item in value:
+            add_optional(command, option, item)
+        return
     if option == "--alpha-sign" and value == "any":
         return
     command.extend([option, str(value)])
@@ -80,6 +86,10 @@ def run_command(command: list[str]) -> None:
     print()
     print("[RUN] " + " ".join(command))
     subprocess.run(command, check=True)
+
+
+def has_value(value: object) -> bool:
+    return value not in (None, "", "any", [])
 
 
 def default_run_name(args: argparse.Namespace) -> str:
@@ -101,7 +111,7 @@ def write_advisor_summary(
     outputs: dict[str, str],
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    conditions = {name: getattr(args, name) for name in FILTER_ARGS if getattr(args, name) not in (None, "", "any")}
+    conditions = {name: getattr(args, name) for name in FILTER_ARGS if has_value(getattr(args, name))}
     payload = {
         "objective": args.objective,
         "model": args.model,
@@ -155,6 +165,18 @@ def main() -> None:
     parser.add_argument("--carrier", choices=["", "p", "n"], default="")
     parser.add_argument("--column-type", default="")
     parser.add_argument("--path-type", default="")
+    parser.add_argument(
+        "--exclude-path-types",
+        default="",
+        help="Comma-separated path types to exclude from surrogate search, e.g. helix_winding.",
+    )
+    parser.add_argument(
+        "--max-columns-for-path",
+        action="append",
+        default=[],
+        metavar="PATH:MAX_COLUMNS",
+        help="Reject rows whose path type exceeds a column-count limit, e.g. helix_winding:10. Can be repeated.",
+    )
     parser.add_argument("--t-ring-m", type=float, default=None)
     parser.add_argument("--ratio-hole", type=float, default=None)
     parser.add_argument("--h-uc-m", type=float, default=None)

@@ -138,14 +138,14 @@ def lateral_direction(p0: Vec3, p1: Vec3) -> Vec3:
     return unit((-chord[1], chord[0], 0.0), radial_direction(p0, p1))
 
 
-def sample_path(path_type: str, p0: Vec3, p1: Vec3) -> list[Vec3]:
+def sample_path(path_type: str, p0: Vec3, p1: Vec3, amplitude_scale: float = 1.0) -> list[Vec3]:
     n = DEFAULT_PATH_SAMPLES[path_type]
     if path_type == "straight":
         return [p0, p1]
 
     points: list[Vec3] = []
     if path_type == "single_kink":
-        bump = mul(radial_direction(p0, p1), 0.42)
+        bump = mul(radial_direction(p0, p1), 0.42 * amplitude_scale)
         mid = add(mul(add(p0, p1), 0.5), bump)
         for i in range(n):
             t = i / (n - 1)
@@ -153,7 +153,7 @@ def sample_path(path_type: str, p0: Vec3, p1: Vec3) -> list[Vec3]:
         return points
 
     if path_type == "arc_curve":
-        control = add(mul(add(p0, p1), 0.5), mul(radial_direction(p0, p1), 0.55))
+        control = add(mul(add(p0, p1), 0.5), mul(radial_direction(p0, p1), 0.55 * amplitude_scale))
         for i in range(n):
             t = i / (n - 1)
             points.append(
@@ -171,8 +171,8 @@ def sample_path(path_type: str, p0: Vec3, p1: Vec3) -> list[Vec3]:
             t = i / (n - 1)
             base = lerp(p0, p1, t)
             offset = add(
-                mul(lateral, 0.23 * math.sin(2.0 * math.pi * t)),
-                mul(outward, 0.10 * math.sin(4.0 * math.pi * t)),
+                mul(lateral, 0.23 * amplitude_scale * math.sin(2.0 * math.pi * t)),
+                mul(outward, 0.10 * amplitude_scale * math.sin(4.0 * math.pi * t)),
             )
             points.append(add(base, offset))
         return points
@@ -187,7 +187,7 @@ def sample_path(path_type: str, p0: Vec3, p1: Vec3) -> list[Vec3]:
             base = lerp(p0, p1, t)
             envelope = math.sin(math.pi * t)
             phase = 2.0 * math.pi * 1.25 * t
-            offset = mul(add(mul(u, math.cos(phase)), mul(v, math.sin(phase))), 0.20 * envelope)
+            offset = mul(add(mul(u, math.cos(phase)), mul(v, math.sin(phase))), 0.20 * amplitude_scale * envelope)
             points.append(add(base, offset))
         return points
 
@@ -195,8 +195,14 @@ def sample_path(path_type: str, p0: Vec3, p1: Vec3) -> list[Vec3]:
         d = sub(p1, p0)
         outward = radial_direction(p0, p1)
         lateral = lateral_direction(p0, p1)
-        c1 = add(add(p0, mul(d, 0.28)), add(mul(outward, 0.50), mul(lateral, 0.22)))
-        c2 = add(add(p0, mul(d, 0.72)), add(mul(outward, -0.35), mul(lateral, -0.24)))
+        c1 = add(
+            add(p0, mul(d, 0.28)),
+            add(mul(outward, 0.50 * amplitude_scale), mul(lateral, 0.22 * amplitude_scale)),
+        )
+        c2 = add(
+            add(p0, mul(d, 0.72)),
+            add(mul(outward, -0.35 * amplitude_scale), mul(lateral, -0.24 * amplitude_scale)),
+        )
         for i in range(n):
             t = i / (n - 1)
             points.append(
@@ -290,7 +296,12 @@ def position_for_index(index: int, placement: dict[str, object], z: float, n_col
     raise ValueError(f"Unknown placement mode: {mode}")
 
 
-def make_case_mesh(row: dict[str, str], ring_segments: int = RING_SEGMENTS) -> tuple[list[Triangle], dict[str, object]]:
+def make_case_mesh(
+    row: dict[str, str],
+    ring_segments: int = RING_SEGMENTS,
+    column_scale: float = 1.0,
+    path_amplitude_scale: float = 1.0,
+) -> tuple[list[Triangle], dict[str, object]]:
     case_id = row["case_id"]
     r_out = float(row["r_out_m"]) * 1000.0
     r_in = float(row["r_in_m"]) * 1000.0
@@ -300,6 +311,7 @@ def make_case_mesh(row: dict[str, str], ring_segments: int = RING_SEGMENTS) -> t
     n_columns = int(row["num_columns"])
     offset_units = int(row["connection_offset_units"])
     size1 = float(row["size1_m"]) * 1000.0
+    visual_size1 = size1 * column_scale
     column_type = row["column_type"]
     path_type = row["path_type"]
     placement = json.loads(row["placement_json"])
@@ -318,7 +330,7 @@ def make_case_mesh(row: dict[str, str], ring_segments: int = RING_SEGMENTS) -> t
             top_index = column_index + layer_shift + offset_units
             p0 = position_for_index(bottom_index, placement, z_bottom, n_columns)
             p1 = position_for_index(top_index, placement, z_top, n_columns)
-            triangles.extend(tube_mesh(sample_path(path_type, p0, p1), column_type, size1))
+            triangles.extend(tube_mesh(sample_path(path_type, p0, p1, path_amplitude_scale), column_type, visual_size1))
 
     metadata = {
         "case_id": case_id,
@@ -332,6 +344,9 @@ def make_case_mesh(row: dict[str, str], ring_segments: int = RING_SEGMENTS) -> t
         "top_ring_extends_to_mm": n_layer * h_uc + t_ring,
         "column_type": column_type,
         "size1_mm": size1,
+        "visual_size1_mm": visual_size1,
+        "column_scale": column_scale,
+        "path_amplitude_scale": path_amplitude_scale,
         "num_columns": n_columns,
         "path_type": path_type,
         "connection_offset_units": offset_units,
@@ -346,6 +361,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate STL previews for design cases from a CSV file.")
     parser.add_argument("--input", default="results/network_validation/key_design_cases.csv", help="Input design CSV.")
     parser.add_argument("--out-dir", default="results/network_validation/stl_cases", help="Output STL directory.")
+    parser.add_argument(
+        "--column-scale",
+        type=float,
+        default=1.0,
+        help="Scale polygon/tube diameter for visualization. 1.0 preserves database size.",
+    )
+    parser.add_argument(
+        "--path-amplitude-scale",
+        type=float,
+        default=1.0,
+        help="Scale decorative path curvature/helix amplitude. 1.0 preserves the default preview shape.",
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -365,10 +392,18 @@ def main() -> None:
         rows = list(csv.DictReader(f))
     if not rows:
         raise SystemExit(f"No design rows found in {input_path}")
+    if args.column_scale <= 0.0:
+        raise SystemExit("--column-scale must be positive.")
+    if args.path_amplitude_scale < 0.0:
+        raise SystemExit("--path-amplitude-scale must be non-negative.")
 
     for row in rows:
         case_id = row["case_id"]
-        triangles, metadata = make_case_mesh(row)
+        triangles, metadata = make_case_mesh(
+            row,
+            column_scale=args.column_scale,
+            path_amplitude_scale=args.path_amplitude_scale,
+        )
         stl_path = out_dir / f"case_{case_id}.stl"
         triangles_written = write_ascii_stl(stl_path, f"case_{case_id}", triangles)
         metadata["file"] = stl_path.name
