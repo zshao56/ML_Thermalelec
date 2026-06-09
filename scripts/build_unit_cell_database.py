@@ -688,7 +688,6 @@ def insert_scenarios(conn: sqlite3.Connection) -> None:
 
 def iter_design_rows() -> Iterable[tuple]:
     case_id = 1
-    _endpoint_cache: dict[tuple, list[tuple[_Vec3, _Vec3]]] = {}
     _collision_cache: dict[tuple, tuple[bool, str]] = {}
     for (
         t_ring_m,
@@ -765,14 +764,11 @@ def iter_design_rows() -> Iterable[tuple]:
                 row_invalid_reason = "solid_and_coating_volume_exceed_domain"
 
             if row_geometry_valid:
-                ep_key = (placement_mode, num_columns, connection_offset_units, h_col_m)
-                if ep_key not in _endpoint_cache:
-                    placement_obj = json.loads(placement_json)
-                    _endpoint_cache[ep_key] = _pillar_endpoints(
-                        placement_obj, num_columns, connection_offset_units, h_col_m
-                    )
-                endpoints = _endpoint_cache[ep_key]
-                col_key = (path_type, ep_key, feature_radius_m)
+                placement_obj = json.loads(placement_json)
+                endpoints = _pillar_endpoints(
+                    placement_obj, num_columns, connection_offset_units, h_col_m
+                )
+                col_key = (path_type, placement_json, connection_offset_units, h_col_m, feature_radius_m)
                 if col_key not in _collision_cache:
                     has_col, reason = _check_3d_pillar_collision(
                         path_type, endpoints, feature_radius_m, GAP_MIN_M,
