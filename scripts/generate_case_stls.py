@@ -348,21 +348,19 @@ def make_case_mesh(
             triangles.extend(ring_mesh(z0, z0 + t_ring, r_out, r_in, ring_segments))
 
     for layer_index in range(first_layer, last_layer):
+        pillar_extend = t_ring * 0.3  # extend pillar ends into rings for clean connection
         z_bottom = layer_index * h_uc + t_ring
         z_top = (layer_index + 1) * h_uc
+        z_bottom_ext = z_bottom - pillar_extend
+        z_top_ext = z_top + pillar_extend
         layer_shift = layer_index * offset_units
         for column_index in range(n_columns):
             bottom_index = column_index + layer_shift
             top_index = column_index + layer_shift + offset_units
-            p0 = position_for_index(bottom_index, placement, z_bottom, n_columns)
-            p1 = position_for_index(top_index, placement, z_top, n_columns)
-            triangles.extend(
-                tube_mesh(
-                    sample_path(path_type, p0, p1, path_amplitude_scale, path_params),
-                    column_type,
-                    visual_size1,
-                )
-            )
+            p0 = position_for_index(bottom_index, placement, z_bottom_ext, n_columns)
+            p1 = position_for_index(top_index, placement, z_top_ext, n_columns)
+            path_pts = sample_path(path_type, p0, p1, path_amplitude_scale, path_params)
+            triangles.extend(tube_mesh(path_pts, column_type, visual_size1))
 
     metadata = {
         "case_id": case_id,

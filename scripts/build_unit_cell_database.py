@@ -87,7 +87,7 @@ GAP_MIN_M = 0.05 * MM
 RING_THICKNESSES_M = [0.1 * MM, 0.2 * MM, 0.3 * MM]
 HOLE_RATIOS = [0.0, 0.25, 0.5, 0.75]
 H_UC_VALUES_M = [1.0 * MM, 2.5 * MM, 5.0 * MM, 10.0 * MM]
-SIZE1_VALUES_M = [0.2 * MM, 0.3 * MM, 0.4 * MM, 0.5 * MM]
+SIZE1_VALUES_M = [0.1 * MM, 0.15 * MM, 0.2 * MM, 0.25 * MM]
 NUM_VALUES = [5, 10, 15, 20]
 T_COATING_VALUES_M = [500 * NM, 1000 * NM, 1500 * NM, 2000 * NM]
 CONNECTION_OFFSET_FIFTH_STEPS = [0, 1, 2]
@@ -216,6 +216,325 @@ def connection_offsets_for_num(n_columns: int) -> list[int]:
     if n_columns % 5 != 0:
         raise ValueError(f"num_columns must be divisible by 5, got {n_columns}")
     return [step * n_columns // 5 for step in CONNECTION_OFFSET_FIFTH_STEPS]
+
+
+# =========================================================================
+# 3D pillar collision detection for design-space validity filtering
+# =========================================================================
+
+_Vec3 = tuple[float, float, float]
+
+
+def _v3_add(a: _Vec3, b: _Vec3) -> _Vec3:
+    return (a[0] + b[0], a[1] + b[1], a[2] + b[2])
+
+
+def _v3_sub(a: _Vec3, b: _Vec3) -> _Vec3:
+    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+
+def _v3_scale(a: _Vec3, s: float) -> _Vec3:
+    return (a[0] * s, a[1] * s, a[2] * s)
+
+
+def _v3_dot(a: _Vec3, b: _Vec3) -> float:
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _v3_norm(a: _Vec3) -> float:
+    return math.sqrt(_v3_dot(a, a))
+
+
+def _v3_unit(a: _Vec3) -> _Vec3:
+    n = _v3_norm(a)
+    if n < 1e-12:
+        return (1.0, 0.0, 0.0)
+    return _v3_scale(a, 1.0 / n)
+
+
+def _v3_lerp(a: _Vec3, b: _Vec3, t: float) -> _Vec3:
+    return _v3_add(_v3_scale(a, 1.0 - t), _v3_scale(b, t))
+
+
+def _v3_cross(a: _Vec3, b: _Vec3) -> _Vec3:
+    return (
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    )
+
+
+def _v3_dist(a: _Vec3, b: _Vec3) -> float:
+    return _v3_norm(_v3_sub(a, b))
+
+
+def _radial_dir(p0: _Vec3, p1: _Vec3) -> _Vec3:
+    mid = (0.5 * (p0[0] + p1[0]), 0.5 * (p0[1] + p1[1]), 0.0)
+    return _v3_unit(mid)
+
+
+def _lateral_dir(p0: _Vec3, p1: _Vec3) -> _Vec3:
+    chord = _v3_sub(p1, p0)
+    return _v3_unit((-chord[1], chord[0], 0.0))
+
+
+def _sample_path_3d(
+    path_type: str,
+    p0: _Vec3,
+    p1: _Vec3,
+    n_samples: int,
+    path_params: dict[str, object] | None = None,
+) -> list[_Vec3]:
+    """Sample centreline points along a pillar path (all units in metres)."""
+    if path_type == "straight":
+        return [_v3_lerp(p0, p1, i / max(n_samples - 1, 1)) for i in range(n_samples)]
+
+    if path_type == "single_kink":
+        bump = _v3_scale(_radial_dir(p0, p1), 0.42 * MM)
+        mid = _v3_add(_v3_scale(_v3_add(p0, p1), 0.5), bump)
+        pts: list[_Vec3] = []
+        for i in range(n_samples):
+            t = i / (n_samples - 1)
+            if t < 0.5:
+                pts.append(_v3_lerp(p0, mid, 2.0 * t))
+            else:
+                pts.append(_v3_lerp(mid, p1, 2.0 * (t - 0.5)))
+        return pts
+
+    if path_type == "arc_curve":
+        control = _v3_add(
+            _v3_scale(_v3_add(p0, p1), 0.5),
+            _v3_scale(_radial_dir(p0, p1), 0.55 * MM),
+        )
+        pts: list[_Vec3] = []
+        for i in range(n_samples):
+            t = i / (n_samples - 1)
+            pts.append(
+                _v3_add(
+                    _v3_add(
+                        _v3_scale(p0, (1.0 - t) ** 2),
+                        _v3_scale(control, 2.0 * (1.0 - t) * t),
+                    ),
+                    _v3_scale(p1, t * t),
+                )
+            )
+        return pts
+
+    if path_type == "sine_wave":
+        lateral = _lateral_dir(p0, p1)
+        outward = _radial_dir(p0, p1)
+        pts: list[_Vec3] = []
+        for i in range(n_samples):
+            t = i / (n_samples - 1)
+            base = _v3_lerp(p0, p1, t)
+            offset = _v3_add(
+                _v3_scale(lateral, 0.23 * MM * math.sin(2.0 * math.pi * t)),
+                _v3_scale(outward, 0.10 * MM * math.sin(4.0 * math.pi * t)),
+            )
+            pts.append(_v3_add(base, offset))
+        return pts
+
+    if path_type == "helix_winding":
+        axis = _v3_sub(p1, p0)
+        axis_len = _v3_norm(axis)
+        e_axis = _v3_unit(axis)
+        u = _v3_unit(_v3_cross(e_axis, (0.0, 0.0, 1.0)))
+        v = _v3_unit(_v3_cross(e_axis, u))
+        params = path_params or {}
+        radius_ratio = float(params.get("radius_ratio", 0.15))
+        turns = float(params.get("turns", 1.0))
+        helix_r = axis_len * radius_ratio
+        pts: list[_Vec3] = []
+        for i in range(n_samples):
+            t = i / (n_samples - 1)
+            base = _v3_lerp(p0, p1, t)
+            env = math.sin(math.pi * t)
+            phase = 2.0 * math.pi * turns * t
+            offset = _v3_scale(
+                _v3_add(
+                    _v3_scale(u, math.cos(phase)),
+                    _v3_scale(v, math.sin(phase)),
+                ),
+                helix_r * env,
+            )
+            pts.append(_v3_add(base, offset))
+        return pts
+
+    if path_type == "bezier_curve":
+        d = _v3_sub(p1, p0)
+        outward = _radial_dir(p0, p1)
+        lateral = _lateral_dir(p0, p1)
+        c1 = _v3_add(
+            _v3_add(p0, _v3_scale(d, 0.28)),
+            _v3_add(
+                _v3_scale(outward, 0.50 * MM),
+                _v3_scale(lateral, 0.22 * MM),
+            ),
+        )
+        c2 = _v3_add(
+            _v3_add(p0, _v3_scale(d, 0.72)),
+            _v3_add(
+                _v3_scale(outward, -0.35 * MM),
+                _v3_scale(lateral, -0.24 * MM),
+            ),
+        )
+        pts: list[_Vec3] = []
+        for i in range(n_samples):
+            t = i / (n_samples - 1)
+            pts.append(
+                _v3_add(
+                    _v3_add(
+                        _v3_scale(p0, (1.0 - t) ** 3),
+                        _v3_scale(c1, 3.0 * (1.0 - t) ** 2 * t),
+                    ),
+                    _v3_add(
+                        _v3_scale(c2, 3.0 * (1.0 - t) * t * t),
+                        _v3_scale(p1, t**3),
+                    ),
+                )
+            )
+        return pts
+
+    raise ValueError(f"Unknown path_type: {path_type}")
+
+
+def _pillar_endpoints(
+    placement: dict[str, object],
+    n_columns: int,
+    connection_offset_units: int,
+    h_col_m: float,
+) -> list[tuple[_Vec3, _Vec3]]:
+    """Return (bottom, top) centreline endpoints for every pillar in a layer.
+
+    Bottom points lie on the lower ring's top surface (z=0 in local coords).
+    Top points lie on the upper ring's bottom surface (z=h_col_m).
+    All co-ordinates are in metres.
+    """
+    mode = placement["mode"]
+    endpoints: list[tuple[_Vec3, _Vec3]] = []
+
+    if mode == "single_ring":
+        r = float(placement["r_place_m"])
+        for i in range(n_columns):
+            th0 = 2.0 * math.pi * i / n_columns
+            p0: _Vec3 = (r * math.cos(th0), r * math.sin(th0), 0.0)
+            top_i = i + connection_offset_units
+            th1 = 2.0 * math.pi * top_i / n_columns
+            p1: _Vec3 = (r * math.cos(th1), r * math.sin(th1), h_col_m)
+            endpoints.append((p0, p1))
+        return endpoints
+
+    if mode == "double_ring":
+        n_inner = int(placement["n_inner"])
+        n_outer = int(placement["n_outer"])
+        r1 = float(placement["r_inner_m"])
+        r2 = float(placement["r_outer_m"])
+        off_outer = float(placement["theta_offset_outer_rad"])
+        for i in range(n_columns):
+            if i < n_inner:
+                th0 = 2.0 * math.pi * i / n_inner
+                p0 = (r1 * math.cos(th0), r1 * math.sin(th0), 0.0)
+            else:
+                th0 = 2.0 * math.pi * (i - n_inner) / n_outer + off_outer
+                p0 = (r2 * math.cos(th0), r2 * math.sin(th0), 0.0)
+            top_i = i + connection_offset_units
+            if top_i < n_inner:
+                th1 = 2.0 * math.pi * top_i / n_inner
+                p1 = (r1 * math.cos(th1), r1 * math.sin(th1), h_col_m)
+            else:
+                th1 = 2.0 * math.pi * (top_i - n_inner) / n_outer + off_outer
+                p1 = (r2 * math.cos(th1), r2 * math.sin(th1), h_col_m)
+            endpoints.append((p0, p1))
+        return endpoints
+
+    raise ValueError(f"Unknown placement mode: {mode}")
+
+
+def _seg_seg_min_dist(
+    a0: _Vec3, a1: _Vec3, b0: _Vec3, b1: _Vec3
+) -> float:
+    """Analytic minimum distance between two 3-D line segments."""
+    d1 = _v3_sub(a1, a0)
+    d2 = _v3_sub(b1, b0)
+    r = _v3_sub(a0, b0)
+    a = _v3_dot(d1, d1)
+    e = _v3_dot(d2, d2)
+    f = _v3_dot(d2, r)
+
+    if a <= 1e-20 and e <= 1e-20:
+        return _v3_dist(a0, b0)
+    if a <= 1e-20:
+        s = 0.0
+        t = max(0.0, min(1.0, f / e)) if e > 1e-20 else 0.0
+    else:
+        c = _v3_dot(d1, r)
+        if e <= 1e-20:
+            t = 0.0
+            s = max(0.0, min(1.0, -c / a))
+        else:
+            b = _v3_dot(d1, d2)
+            denom = a * e - b * b
+            if abs(denom) > 1e-20:
+                s = max(0.0, min(1.0, (b * f - c * e) / denom))
+            else:
+                s = 0.0
+            tnom = b * s + f
+            if tnom < 0.0:
+                t = 0.0
+                s = max(0.0, min(1.0, -c / a))
+            elif tnom > e:
+                t = 1.0
+                s = max(0.0, min(1.0, (b - c) / a))
+            else:
+                t = tnom / e
+
+    cp1 = _v3_add(a0, _v3_scale(d1, s))
+    cp2 = _v3_add(b0, _v3_scale(d2, t))
+    return _v3_dist(cp1, cp2)
+
+
+def _check_3d_pillar_collision(
+    path_type: str,
+    endpoints: list[tuple[_Vec3, _Vec3]],
+    feature_radius_m: float,
+    gap_min_m: float,
+    path_params: dict[str, object] | None = None,
+    n_samples: int = 24,
+) -> tuple[bool, str]:
+    """Test whether any two pillar centreline paths infringe the minimum gap.
+
+    Uses analytic segment-segment distance for straight paths and
+    sampled centreline points for curved paths.
+
+    Returns (has_collision, reason_string).
+    """
+    n_cols = len(endpoints)
+    if n_cols <= 1:
+        return False, ""
+    min_allowed = 2.0 * feature_radius_m + gap_min_m
+
+    if path_type == "straight":
+        for i in range(n_cols):
+            for j in range(i + 1, n_cols):
+                d = _seg_seg_min_dist(
+                    endpoints[i][0], endpoints[i][1],
+                    endpoints[j][0], endpoints[j][1],
+                )
+                if d < min_allowed:
+                    return True, f"3d_pillar_collision_{i}_{j}"
+        return False, ""
+
+    paths = [
+        _sample_path_3d(path_type, ep[0], ep[1], n_samples, path_params)
+        for ep in endpoints
+    ]
+    for i in range(n_cols):
+        for j in range(i + 1, n_cols):
+            for pi in paths[i]:
+                for pj in paths[j]:
+                    if _v3_dist(pi, pj) < min_allowed:
+                        return True, f"3d_pillar_collision_{i}_{j}"
+    return False, ""
 
 
 def create_schema(conn: sqlite3.Connection) -> None:
@@ -369,6 +688,8 @@ def insert_scenarios(conn: sqlite3.Connection) -> None:
 
 def iter_design_rows() -> Iterable[tuple]:
     case_id = 1
+    _endpoint_cache: dict[tuple, list[tuple[_Vec3, _Vec3]]] = {}
+    _collision_cache: dict[tuple, tuple[bool, str]] = {}
     for (
         t_ring_m,
         ratio_hole,
@@ -442,6 +763,28 @@ def iter_design_rows() -> Iterable[tuple]:
             if f_scaffold + f_coating > 1.0:
                 row_geometry_valid = False
                 row_invalid_reason = "solid_and_coating_volume_exceed_domain"
+
+            if row_geometry_valid:
+                ep_key = (placement_mode, n_columns, connection_offset_units, h_col_m)
+                if ep_key not in _endpoint_cache:
+                    placement_obj = json.loads(placement_json)
+                    _endpoint_cache[ep_key] = _pillar_endpoints(
+                        placement_obj, n_columns, connection_offset_units, h_col_m
+                    )
+                endpoints = _endpoint_cache[ep_key]
+                col_key = (path_type, ep_key, feature_radius_m)
+                if col_key not in _collision_cache:
+                    has_col, reason = _check_3d_pillar_collision(
+                        path_type, endpoints, feature_radius_m, GAP_MIN_M,
+                        path_params,
+                    )
+                    _collision_cache[col_key] = (has_col, reason)
+                has_col, col_reason = _collision_cache[col_key]
+                if has_col:
+                    row_geometry_valid = False
+                    row_invalid_reason = (
+                        col_reason if not row_invalid_reason else row_invalid_reason
+                    )
 
             kappa_uc_est = (
                 f_scaffold * KAPPA_SCAFFOLD
